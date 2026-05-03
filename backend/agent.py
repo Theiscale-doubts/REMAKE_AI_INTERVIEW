@@ -1,18 +1,13 @@
 import dotenv
 import os as _os
 dotenv.load_dotenv(_os.path.join(_os.path.dirname(__file__), ".env"))
-from typing import Dict, List, Any
+from typing import Dict
 import random
 from langchain_groq import ChatGroq
-
-from langchain.tools import tool
-from langchain.agents import create_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-
 from langchain_google_genai import ChatGoogleGenerativeAI
-from tools import save_qa_tool
 
 # Initialize LLM model instance with HIGHER temperature for more variety
 google_llm = ChatGoogleGenerativeAI(
@@ -312,6 +307,8 @@ _DOMAIN_ALIASES = {
     "product": "product",
     "devops": "devops",
     "dev ops": "devops",
+    "hr": "hr(humain recourse) + managerial",
+    "hr / managerial": "hr(humain recourse) + managerial",
     "hr(humain recourse) + managerial": "hr(humain recourse) + managerial",
 }
 

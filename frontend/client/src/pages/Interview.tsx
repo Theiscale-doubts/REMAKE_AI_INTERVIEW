@@ -20,7 +20,7 @@ import {
 import Results from './Results';
 
 const API_BASE_URL = `${(import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "")}/api`;
-const TOTAL_QUESTIONS = 5;
+const TOTAL_QUESTIONS = 9;
 
 export default function VoxHireApp() {
   const [showInterview, setShowInterview] = useState(false);
@@ -38,6 +38,7 @@ export default function VoxHireApp() {
     try {
       const response = await fetch(`${API_BASE_URL}/start`);
       const data = await response.json();
+      if (!data.session_id) throw new Error("No session_id in response");
       setSessionId(data.session_id);
       setShowInterview(true);
     } catch (error) {
@@ -241,7 +242,8 @@ function SetupPage({
                     <option value="Data Analytics">Data Analytics</option>
                     <option value="product">Product Manager</option>
                     <option value="devops">DevOps Engineer</option>
-                    
+                    <option value="hr">HR / Managerial</option>
+
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400 pointer-events-none" />
                 </div>
@@ -359,14 +361,9 @@ function InterviewPage({
     }
   }, [cameraStream]);
 
-  // Initialize speech recognition
-  useEffect(() => {
+  const buildRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      showCustomAlert("Speech recognition not supported in this browser. Please use Chrome or Edge.");
-      return;
-    }
+    if (!SpeechRecognition) return null;
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
@@ -375,28 +372,24 @@ function InterviewPage({
 
     recognition.onresult = (event: any) => {
       let finalTranscript = '';
-
       for (let i = event.resultIndex; i < event.results.length; i++) {
         if (event.results[i].isFinal) {
           finalTranscript += event.results[i][0].transcript + ' ';
         }
       }
-
       setTranscript((prev) => prev + finalTranscript);
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      if (event.error === 'no-speech') {
-        setStatusText('No speech detected. Please try again.');
-      } else {
-        setStatusText(`Error: ${event.error}`);
-      }
-      stopRecording(); // Stop on error
     };
 
     recognition.onaudiostart = () => {
       setStatusText("Microphone ready — speak now");
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      setStatusText(event.error === 'no-speech' ? 'No speech detected. Try again.' : `Error: ${event.error}`);
+      isRecordingRef.current = false;
+      setIsRecording(false);
+      if (intervalIdRef.current) { clearInterval(intervalIdRef.current); intervalIdRef.current = null; }
     };
 
     recognition.onend = () => {
@@ -407,20 +400,19 @@ function InterviewPage({
       }
     };
 
-    recognitionRef.current = recognition;
+    return recognition;
+  };
 
-    // Get first question on mount
+  // Set first question and clean up on unmount
+  useEffect(() => {
     getFirstQuestion();
-
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try { recognitionRef.current.abort(); } catch (_) {}
       }
-      if (intervalIdRef.current) {
-        clearInterval(intervalIdRef.current);
-      }
+      if (intervalIdRef.current) clearInterval(intervalIdRef.current);
     };
-  }, []); // Empty dependency array, runs once
+  }, []);
 
   const getFirstQuestion = () => {
     setCurrentQuestion("Introduce yourself.");
@@ -433,10 +425,17 @@ function InterviewPage({
   };
 
   const startRecording = () => {
-    if (!recognitionRef.current) {
-      showCustomAlert("Speech recognition not available");
+    // Abort any existing session before creating a fresh one
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch (_) {}
+    }
+
+    const recognition = buildRecognition();
+    if (!recognition) {
+      showCustomAlert("Speech recognition not supported in this browser. Please use Chrome or Edge.");
       return;
     }
+    recognitionRef.current = recognition;
 
     setTranscript("");
     setTotalSeconds(0);
@@ -444,17 +443,17 @@ function InterviewPage({
     setIsRecording(true);
     setStatusText("Preparing microphone...");
     setSubmitted(false);
-    
+
     try {
-      recognitionRef.current.start();
-      
+      recognition.start();
       intervalIdRef.current = window.setInterval(() => {
         setTotalSeconds((prev) => prev + 1);
       }, 1000);
     } catch (error) {
       console.error('Failed to start recording:', error);
-      showCustomAlert('Failed to start recording. Please try again.');
-      stopRecording(); // Clean up if start failed
+      isRecordingRef.current = false;
+      setIsRecording(false);
+      setStatusText("Failed to start — please try again.");
     }
   };
 

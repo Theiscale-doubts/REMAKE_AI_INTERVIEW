@@ -5,17 +5,14 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
-import Interview from "./pages/Interview";
-import Results from "./pages/Results";
+import VoxHireApp from "./pages/Interview";
 
 function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
-      <Route path={"/interview"} component={Interview} />
-      <Route path={"/results"} component={Results} />
+      <Route path={"/interview"} component={VoxHireApp} />
       <Route path={"/404"} component={NotFound} />
-
       <Route component={NotFound} />
     </Switch>
   );
