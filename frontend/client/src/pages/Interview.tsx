@@ -239,7 +239,7 @@ function SetupPage({
                   >
                     <option value="frontend">Front-End Developer</option>
                     <option value="datascience">Data Scientist</option>
-                    <option value="Data Analytics">Data Analytics</option>
+                    <option value="data_analytics">Data Analytics</option>
                     <option value="product">Product Manager</option>
                     <option value="devops">DevOps Engineer</option>
                     <option value="hr">HR / Managerial</option>
