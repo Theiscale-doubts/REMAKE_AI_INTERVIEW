@@ -623,9 +623,9 @@ function InterviewPage({
         </div>
         <div className="relative bg-black" style={{ height: 150 }}>
           {cameraError ? (
-            <div className="h-full flex flex-col items-center justify-center gap-2">
-              <CameraOff className="h-8 w-8 text-neutral-600" />
-              <span className="text-xs text-neutral-500 text-center px-2">Monitoring starts with recording</span>
+            <div className="h-full flex flex-col items-center justify-center gap-2 px-2">
+              <CameraOff className="h-8 w-8 text-red-500/60" />
+              <span className="text-xs text-red-400 text-center">Camera unavailable</span>
             </div>
           ) : (
             <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
