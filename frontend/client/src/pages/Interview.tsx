@@ -319,6 +319,8 @@ function InterviewPage({
   const [questionCount, setQuestionCount] = useState(0); 
 
   const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const intervalIdRef = useRef<number | null>(null);
   const isRecordingRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -384,62 +386,16 @@ function InterviewPage({
     }
   }, [cameraStream]);
 
-  const buildRecognition = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return null;
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-
-    recognition.onresult = (event: any) => {
-      let finalTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript + ' ';
-        }
-      }
-      setTranscript((prev) => prev + finalTranscript);
-    };
-
-    recognition.onaudiostart = () => {
-      setStatusText("Microphone ready — speak now");
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      setStatusText(event.error === 'no-speech' ? 'No speech detected. Try again.' : `Error: ${event.error}`);
-      isRecordingRef.current = false;
-      setIsRecording(false);
-      if (intervalIdRef.current) { clearInterval(intervalIdRef.current); intervalIdRef.current = null; }
-    };
-
-    recognition.onend = () => {
-      if (isRecordingRef.current) {
-        isRecordingRef.current = false;
-        setIsRecording(false);
-        setStatusText('Recording stopped');
-      }
-    };
-
-    return recognition;
-  };
-
   // Set first question and clean up on unmount
   useEffect(() => {
-    getFirstQuestion();
+    setCurrentQuestion("Introduce yourself.");
     return () => {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.abort(); } catch (_) {}
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        try { mediaRecorderRef.current.stop(); } catch (_) {}
       }
       if (intervalIdRef.current) clearInterval(intervalIdRef.current);
     };
   }, []);
-
-  const getFirstQuestion = () => {
-    setCurrentQuestion("Introduce yourself.");
-  };
 
   const formatTime = (sec: number) => {
     const m = Math.floor(sec / 60).toString().padStart(2, "0");
@@ -453,66 +409,64 @@ function InterviewPage({
       return;
     }
 
-    // Ensure microphone permission is granted explicitly before SpeechRecognition starts.
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
-        probe.getTracks().forEach((t) => t.stop());
-      } catch (err: any) {
-        const name = err?.name || "";
-        if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-          showCustomAlert("Microphone permission was denied. Click the lock icon in the address bar, allow microphone access, and refresh.");
-        } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-          showCustomAlert("No microphone detected. Please connect one and try again.");
-        } else if (name === "NotReadableError" || name === "TrackStartError") {
-          showCustomAlert("Microphone is being used by another app. Close it and try again.");
-        } else {
-          showCustomAlert("Could not access the microphone. Please check your browser permissions.");
-        }
-        return;
+    let micStream: MediaStream;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err: any) {
+      const name = err?.name || "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        showCustomAlert("Microphone permission was denied. Click the lock icon in the address bar, allow microphone access, and refresh.");
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        showCustomAlert("No microphone detected. Please connect one and try again.");
+      } else if (name === "NotReadableError" || name === "TrackStartError") {
+        showCustomAlert("Microphone is being used by another app. Close it and try again.");
+      } else {
+        showCustomAlert("Could not access the microphone. Please check your browser permissions.");
       }
-    }
-
-    // Abort any existing session before creating a fresh one
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort(); } catch (_) {}
-      recognitionRef.current = null;
-    }
-
-    const recognition = buildRecognition();
-    if (!recognition) {
-      showCustomAlert("Speech recognition not supported in this browser. Please use Chrome or Edge.");
       return;
     }
-    recognitionRef.current = recognition;
 
-    setTranscript("");
-    setTotalSeconds(0);
-    isRecordingRef.current = true;
-    setIsRecording(true);
-    setStatusText("Preparing microphone...");
-    setSubmitted(false);
+    audioChunksRef.current = [];
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
+    const recorder = new MediaRecorder(micStream, { mimeType });
 
-    const tryStart = (attempt = 0) => {
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data);
+    };
+
+    recorder.onstop = async () => {
+      micStream.getTracks().forEach((t) => t.stop());
+      const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+      setStatusText("Transcribing your answer...");
+
       try {
-        recognition.start();
-        intervalIdRef.current = window.setInterval(() => {
-          setTotalSeconds((prev) => prev + 1);
-        }, 1000);
-      } catch (error: any) {
-        // InvalidStateError happens if a previous instance is still tearing down.
-        // Retry once after a short delay before giving up.
-        if (attempt === 0 && error?.name === "InvalidStateError") {
-          setTimeout(() => tryStart(1), 250);
-          return;
-        }
-        console.error('Failed to start recording:', error);
+        const formData = new FormData();
+        formData.append("file", audioBlob, `recording.${mimeType === "audio/webm" ? "webm" : "ogg"}`);
+        const res = await fetch(`${API_BASE_URL}/transcribe`, { method: "POST", body: formData });
+        if (!res.ok) throw new Error("Transcription request failed");
+        const data = await res.json();
+        setTranscript(data.transcript || "");
+        setStatusText("Transcription complete — review and submit.");
+      } catch (err) {
+        console.error("Transcription error:", err);
+        setStatusText("Transcription failed. Please retake and try again.");
         isRecordingRef.current = false;
         setIsRecording(false);
-        setStatusText("Failed to start — please refresh and try again.");
       }
     };
-    tryStart();
+
+    mediaRecorderRef.current = recorder;
+    recorder.start();
+    isRecordingRef.current = true;
+    setIsRecording(true);
+    setTranscript("");
+    setTotalSeconds(0);
+    setSubmitted(false);
+    setStatusText("Recording — speak your answer...");
+
+    intervalIdRef.current = window.setInterval(() => {
+      setTotalSeconds((prev) => prev + 1);
+    }, 1000);
   };
 
   const stopRecording = () => {
@@ -520,18 +474,11 @@ function InterviewPage({
       clearInterval(intervalIdRef.current);
       intervalIdRef.current = null;
     }
-    
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (error) {
-        console.error('Error stopping recognition:', error);
-      }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
     }
-    
     isRecordingRef.current = false;
     setIsRecording(false);
-    setStatusText("Recording stopped");
   };
 
   const retake = () => {

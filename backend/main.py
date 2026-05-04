@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from tools import extract_values
@@ -82,6 +82,24 @@ def save_endpoint(request: SaveRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
     return {"status": "ok", "detail": result}
+
+@app.post("/api/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """Transcribe audio using Groq Whisper."""
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if not groq_api_key:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+    client = Groq(api_key=groq_api_key)
+    audio_bytes = await file.read()
+    try:
+        transcription = client.audio.transcriptions.create(
+            file=(file.filename or "audio.webm", audio_bytes),
+            model="whisper-large-v3-turbo",
+            language="en",
+        )
+        return {"transcript": transcription.text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
 @app.get("/api/log/{session_id}")
 async def get_interview_results(session_id: str) -> InterviewResult:

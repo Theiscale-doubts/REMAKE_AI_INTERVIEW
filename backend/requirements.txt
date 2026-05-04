@@ -10,3 +10,4 @@ oauth2client
 groq
 langchain-groq
 typing-extensions
+python-multipart
