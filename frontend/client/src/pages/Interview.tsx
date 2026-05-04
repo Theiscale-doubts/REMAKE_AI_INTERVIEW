@@ -335,19 +335,42 @@ function InterviewPage({
     alert(message); 
   };
 
-  // Initialize camera for proctoring
+  // Initialize camera + microphone for proctoring (single combined permission prompt)
   useEffect(() => {
     let stream: MediaStream | null = null;
-    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+
+    if (!window.isSecureContext) {
+      setCameraError("Camera/microphone need a secure (HTTPS) connection. Open the site over https://");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Your browser does not support camera/microphone access. Please use Chrome or Edge.");
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then((s) => {
         stream = s;
-        setCameraStream(s);
+        // Keep video tracks on the visible stream, immediately stop audio tracks
+        // so the SpeechRecognition API can take over the mic cleanly.
+        s.getAudioTracks().forEach((t) => t.stop());
+        const videoOnly = new MediaStream(s.getVideoTracks());
+        setCameraStream(videoOnly);
         if (videoRef.current) {
-          videoRef.current.srcObject = s;
+          videoRef.current.srcObject = videoOnly;
         }
       })
-      .catch(() => {
-        setCameraError("Failed to access camera for monitoring");
+      .catch((err: any) => {
+        const name = err?.name || "";
+        if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+          setCameraError("Permission denied. Click the camera icon in the address bar and allow camera + microphone, then refresh.");
+        } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+          setCameraError("No camera or microphone detected. Please connect a device and refresh.");
+        } else if (name === "NotReadableError" || name === "TrackStartError") {
+          setCameraError("Camera or microphone is in use by another app. Close it and refresh.");
+        } else {
+          setCameraError("Failed to access camera/microphone for monitoring.");
+        }
       });
     return () => {
       stream?.getTracks().forEach((t) => t.stop());
@@ -424,10 +447,36 @@ function InterviewPage({
     return `${m}:${s}`;
   };
 
-  const startRecording = () => {
+  const startRecording = async () => {
+    if (!window.isSecureContext) {
+      showCustomAlert("Recording requires a secure (HTTPS) connection. Please open this site over https://");
+      return;
+    }
+
+    // Ensure microphone permission is granted explicitly before SpeechRecognition starts.
+    if (navigator.mediaDevices?.getUserMedia) {
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+        probe.getTracks().forEach((t) => t.stop());
+      } catch (err: any) {
+        const name = err?.name || "";
+        if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+          showCustomAlert("Microphone permission was denied. Click the lock icon in the address bar, allow microphone access, and refresh.");
+        } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+          showCustomAlert("No microphone detected. Please connect one and try again.");
+        } else if (name === "NotReadableError" || name === "TrackStartError") {
+          showCustomAlert("Microphone is being used by another app. Close it and try again.");
+        } else {
+          showCustomAlert("Could not access the microphone. Please check your browser permissions.");
+        }
+        return;
+      }
+    }
+
     // Abort any existing session before creating a fresh one
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch (_) {}
+      recognitionRef.current = null;
     }
 
     const recognition = buildRecognition();
@@ -444,17 +493,26 @@ function InterviewPage({
     setStatusText("Preparing microphone...");
     setSubmitted(false);
 
-    try {
-      recognition.start();
-      intervalIdRef.current = window.setInterval(() => {
-        setTotalSeconds((prev) => prev + 1);
-      }, 1000);
-    } catch (error) {
-      console.error('Failed to start recording:', error);
-      isRecordingRef.current = false;
-      setIsRecording(false);
-      setStatusText("Failed to start — please try again.");
-    }
+    const tryStart = (attempt = 0) => {
+      try {
+        recognition.start();
+        intervalIdRef.current = window.setInterval(() => {
+          setTotalSeconds((prev) => prev + 1);
+        }, 1000);
+      } catch (error: any) {
+        // InvalidStateError happens if a previous instance is still tearing down.
+        // Retry once after a short delay before giving up.
+        if (attempt === 0 && error?.name === "InvalidStateError") {
+          setTimeout(() => tryStart(1), 250);
+          return;
+        }
+        console.error('Failed to start recording:', error);
+        isRecordingRef.current = false;
+        setIsRecording(false);
+        setStatusText("Failed to start — please refresh and try again.");
+      }
+    };
+    tryStart();
   };
 
   const stopRecording = () => {
