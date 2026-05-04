@@ -1,12 +1,13 @@
 import uuid
 import os
 import json
+import time
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from tools import extract_values
@@ -16,6 +17,33 @@ from groq import Groq
 
 
 app = FastAPI()
+
+# IP rate limiting: max 2 interview sessions per IP per 24 hours
+_ip_attempts: dict[str, list[float]] = {}
+DAILY_LIMIT = 2
+WINDOW_SECONDS = 24 * 60 * 60
+
+def _get_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+def _check_ip_limit(ip: str):
+    now = time.time()
+    attempts = _ip_attempts.get(ip, [])
+    # Drop attempts older than 24 hours
+    attempts = [t for t in attempts if now - t < WINDOW_SECONDS]
+    if len(attempts) >= DAILY_LIMIT:
+        reset_in = int(WINDOW_SECONDS - (now - attempts[0]))
+        hours = reset_in // 3600
+        minutes = (reset_in % 3600) // 60
+        raise HTTPException(
+            status_code=429,
+            detail=f"You have already completed {DAILY_LIMIT} interviews today. Please try again in {hours}h {minutes}m."
+        )
+    attempts.append(now)
+    _ip_attempts[ip] = attempts
 
 _raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173")
 _allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
@@ -49,7 +77,8 @@ class SaveRequest(BaseModel):
 def start_chek():
     return {"session": " API is working fine"}
 @app.get("/api/start")
-def start_session():
+def start_session(request: Request):
+    _check_ip_limit(_get_ip(request))
     session_id = str(uuid.uuid4())
     return {"session_id": session_id}
 

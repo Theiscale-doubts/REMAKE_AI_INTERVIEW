@@ -37,13 +37,17 @@ export default function VoxHireApp() {
   const startNewSession = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/start`);
+      if (response.status === 429) {
+        const data = await response.json();
+        alert(data.detail || "You have already completed 2 interviews today. Please try again tomorrow.");
+        return;
+      }
       const data = await response.json();
       if (!data.session_id) throw new Error("No session_id in response");
       setSessionId(data.session_id);
       setShowInterview(true);
     } catch (error) {
       console.error("Failed to start session:", error);
-      // Use a less intrusive error message
       console.error(`Failed to connect to backend. Make sure the server is running at ${API_BASE_URL}`);
     }
   };
