@@ -318,7 +318,6 @@ function InterviewPage({
   const [interviewComplete, setInterviewComplete] = useState(false);
   const [questionCount, setQuestionCount] = useState(0); 
 
-  const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const intervalIdRef = useRef<number | null>(null);
@@ -547,9 +546,6 @@ function InterviewPage({
       setIsRecording(false);
       setStatusText("Ready to record");
 
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch (_) {}
-      }
     } catch (error) {
       console.error('Failed to submit answer:', error);
       showCustomAlert('Failed to submit answer. Please try again.');
