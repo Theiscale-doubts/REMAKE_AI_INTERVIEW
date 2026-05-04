@@ -55,46 +55,44 @@ DOMAIN_QUESTIONS = {
     },
     "hr(humain recourse) + managerial": {
         "topics": [
-            "Behavioral questions (challenging projects, difficult team members)",
-            "Situational scenarios (unclear requirements, falling behind schedule)",
-            "Soft skills and cultural fit",
-            "Teamwork and communication",
-            "Career goals and motivation",
-            "Strengths and development areas",
-            "Conflict resolution and feedback",
-            "Translating data findings to non-technical stakeholders",
-            "Managing competing priorities across business units",
-            "Handling vague or changing reporting requirements",
-            "Data quality ownership and trust building",
-            "Stakeholder pushback on data interpretation",
-            "Self-service analytics adoption and enablement",
-            "Ethics and responsible use of data",
-            "Privacy awareness and data governance mindset",
-            "AI-assisted tools and knowing when to trust automation",
-            "Staying current in a fast-changing analytics landscape",
-            "Cross-functional collaboration with engineering and product teams",
-            "Agile and iterative ways of working in analytics delivery",
-            "Growth mindset and continuous learning in data roles"
+            "Self-introduction and professional background (walk me through your resume, career journey)",
+            "Strengths (top strengths, what you excel at, how they add value)",
+            "Weaknesses and self-improvement (honest weakness, steps taken to improve)",
+            "Career goals and aspirations (short-term and long-term goals, where you see yourself in 5 years)",
+            "Motivation and work values (what drives you, what kind of work energizes you)",
+            "Why this company and role (research on the company, alignment with values and mission)",
+            "Teamwork and collaboration (working in teams, handling different personalities)",
+            "Leadership and initiative (taking ownership, leading without authority, stepping up)",
+            "Conflict resolution (handling disagreements with teammates or managers, staying professional)",
+            "Handling pressure and deadlines (working under stress, managing multiple priorities)",
+            "Achievements and accomplishments (proudest professional achievement, impact delivered)",
+            "Adaptability and change management (adjusting to new environments, handling uncertainty)",
+            "Communication skills (how you communicate upward and across teams)",
+            "Failure and learnings (a time you failed, what you learned, how you bounced back)",
+            "Cultural fit and work style (preferred work environment, collaboration style)",
+            "Feedback and criticism (receiving constructive feedback, acting on it)",
+            "Work-life balance and self-management (managing time, staying productive)",
+            "Salary and career expectations (what you're looking for, negotiation mindset)"
         ],
         "sample_starters": [
-            "Tell me about a time you had to learn a new technology quickly",
-            "How do you handle stress in a fast-paced environment?",
-            "Describe a situation where you disagreed with your manager",
-            "What motivates you in your career?",
-            "How do you explain technical concepts to non-technical stakeholders?",
-            "Tell me about a project that failed. What did you learn?",
-            "Why do you want to work here?",
-            "Tell me about a time a stakeholder didn't trust your data. How did you handle it?",
-            "How do you prioritize when multiple teams are requesting analytics support at the same time?",
-            "Describe a situation where you had to push back on how data was being interpreted or presented",
-            "Tell me about a time you had to work with incomplete or messy data under a deadline",
-            "How do you stay current with changes in the analytics and BI landscape?",
-            "Describe a time you had to balance speed of delivery with data accuracy",
-            "Tell me about a time you helped a non-technical team become more data-driven",
-            "How do you approach working with AI-assisted tools while maintaining trust in the output?",
-            "Describe a situation where data governance or privacy considerations shaped how you delivered a solution",
-            "Tell me about a time you had to align multiple stakeholders on a single definition of a metric",
-            "How do you handle a situation where the data tells a story the business doesn't want to hear?"
+            "Tell me about yourself and walk me through your professional journey",
+            "What would you say are your top three strengths?",
+            "What is one weakness you are actively working on improving?",
+            "Where do you see yourself professionally in the next 3 to 5 years?",
+            "What motivates you the most in your work?",
+            "Why are you interested in this role and our company specifically?",
+            "Describe a time you had to work closely with a difficult teammate. How did you handle it?",
+            "Tell me about a time you took initiative without being asked",
+            "Describe a situation where you disagreed with your manager. What did you do?",
+            "How do you manage your work when you have multiple deadlines at the same time?",
+            "What is your proudest professional achievement so far?",
+            "Tell me about a time you had to adapt quickly to a major change at work",
+            "Tell me about a time you failed at something. What did you learn from it?",
+            "How do you prefer to receive feedback from your manager?",
+            "Describe your ideal work environment and team culture",
+            "How do you handle a situation where you strongly disagree with a team decision?",
+            "Tell me about a time you went above and beyond what was expected of you",
+            "How do you stay productive and maintain focus when working under pressure?"
         ]
     },
     "data_analytics": {
@@ -223,29 +221,31 @@ DOMAIN_QUESTIONS = {
 }
 
 SYSTEM_PROMPT = """
-You are Synthia, an expert interviewer conducting a {total_questions}-question interview for a {domain_context} role.
-Context
+You are Synthia, an expert interviewer conducting a {total_questions}-question interview.
 
 Current question: {current_question} of {total_questions}
 Topics already covered: {covered_topics}
 
+Domain context:
+{domain_context}
+
 Topic Rules:
-Never repeat or revisit a covered topic
-Q1 must be high-level, conceptual, or business-oriented — never SQL, never a cliché DA opener
-Delay SQL until Q3 at the earliest; when SQL appears, start with window functions, query optimization, or reasoning-based questions — never joins by default
-Rotate across: data visualization → business metrics → data cleaning → EDA → Excel/Power BI → stakeholder communication → SQL (later)
+- Never repeat or revisit a covered topic
+- Pick questions from the domain topics list only — stay strictly on topic
+- Start with broader, introductory questions and gradually go deeper
+- Rotate across different topic areas — do not cluster similar topics together
 
 Question Style:
-One concept per question, 1–2 sentences max
-Mix conceptual and practical; increase difficulty gradually
-Python: concepts only, no code
+- One focused question per turn, 1–2 sentences max
+- Mix behavioral and situational questions naturally
+- For HR: use real-world scenarios and STAR-style prompts (Situation, Task, Action, Result)
+- For technical domains: concepts only, no code writing
 
 Response Format:
-Brief evaluation of their previous answer (skip on Q1)
-One new question from an uncovered topic
+- Brief evaluation of their previous answer (skip on Q1)
+- One new question from an uncovered topic
 
 Language: English only.
-
 """
 
 prompt = ChatPromptTemplate.from_messages([
