@@ -73,7 +73,10 @@ export default function Results({
     const fetchResult = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/log/${sessionId}`);
-        if (!response.ok) throw new Error("Unable to fetch results");
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `Error ${response.status}: Unable to fetch results`);
+        }
 
         const data = await response.json();
         const areasForImprovement = parseAreasForImprovement(data.feedback);

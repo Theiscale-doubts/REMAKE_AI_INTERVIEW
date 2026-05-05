@@ -56,6 +56,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# In-memory Q&A store — survives within the same Render instance session
+_session_qa: dict[str, list] = {}
+
 class ChatRequest(BaseModel):
     session_id: str
     message: str
@@ -101,16 +104,26 @@ def chat_endpoint(request: ChatRequest):
 
 @app.post("/api/save")
 def save_endpoint(request: SaveRequest):
-    """Save a question/answer pair to the interview log via tools.save_qa_tool.
+    # Store in memory first — reliable within the same instance
+    if request.session_id:
+        if request.session_id not in _session_qa:
+            _session_qa[request.session_id] = []
+        _session_qa[request.session_id].append({
+            "Question": request.question,
+            "Answer": request.answer,
+            "Session_id": request.session_id,
+            "Name": request.name or "",
+            "Email": request.email or "",
+            "Role": request.role or "",
+        })
 
-    This endpoint is provided so the frontend can explicitly persist QA pairs.
-    """
+    # Also persist to CSV + Google Sheets (best effort)
     try:
-        result = save_qa_tool(request.question, request.answer, request.session_id, request.name, request.email, request.role)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        save_qa_tool(request.question, request.answer, request.session_id, request.name, request.email, request.role)
+    except Exception:
+        pass
 
-    return {"status": "ok", "detail": result}
+    return {"status": "ok"}
 
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
@@ -134,16 +147,21 @@ async def transcribe_audio(file: UploadFile = File(...)):
 async def get_interview_results(session_id: str) -> InterviewResult:
     '''Generate interview evaluation using Groq LLM based on the interview log.'''
     Groq_api_key = os.getenv("GROQ_API_KEY")
-    log_str = extract_values(session_id_to_find=session_id)
-    print("Extracted log:", log_str)
-    
-    try:
-        log = json.loads(log_str)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Failed to parse interview log.")
+
+    # Check in-memory store first (most reliable on Render)
+    if session_id in _session_qa and _session_qa[session_id]:
+        log = _session_qa[session_id]
+        print(f"Loaded {len(log)} Q&A pairs from memory for session {session_id}")
+    else:
+        log_str = extract_values(session_id_to_find=session_id)
+        print("Extracted log:", log_str)
+        try:
+            log = json.loads(log_str)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail="Failed to parse interview log.")
 
     if not log:
-        raise HTTPException(status_code=404, detail="Interview log not found or is empty.")
+        raise HTTPException(status_code=404, detail="Interview log not found. Please complete the interview first.")
 
     first_entry = log[0]
     transcript = f"""
