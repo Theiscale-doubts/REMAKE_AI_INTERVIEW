@@ -2,6 +2,7 @@ import uuid
 import os
 import json
 import time
+import threading
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -45,19 +46,40 @@ def _check_ip_limit(ip: str):
     attempts.append(now)
     _ip_attempts[ip] = attempts
 
-_raw_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173")
-_allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
+# Support wildcard "*" to allow all origins (useful when frontend domain changes),
+# or comma-separated list of specific origins for tighter control.
+_allow_all = _raw_origins.strip() == "*"
+_allowed_origins = ["*"] if _allow_all else [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_credentials=True,
+    allow_credentials=not _allow_all,  # credentials require explicit origins, not "*"
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# In-memory Q&A store — survives within the same Render instance session
-_session_qa: dict[str, list] = {}
+# Session store: loaded from disk on startup, written on every save.
+# Survives backend restarts on Render (persistent disk / /tmp fallback).
+_SESSION_FILE = os.path.join(os.path.dirname(__file__), "session_store.json")
+_store_lock = threading.Lock()
+
+def _load_store() -> dict:
+    try:
+        with open(_SESSION_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _flush_store(store: dict) -> None:
+    try:
+        with open(_SESSION_FILE, "w") as f:
+            json.dump(store, f)
+    except Exception as e:
+        print(f"Warning: could not persist session store: {e}")
+
+_session_qa: dict[str, list] = _load_store()
 
 class ChatRequest(BaseModel):
     session_id: str
@@ -104,18 +126,20 @@ def chat_endpoint(request: ChatRequest):
 
 @app.post("/api/save")
 def save_endpoint(request: SaveRequest):
-    # Store in memory first — reliable within the same instance
+    # Store in memory and persist to disk so restarts don't lose data
     if request.session_id:
-        if request.session_id not in _session_qa:
-            _session_qa[request.session_id] = []
-        _session_qa[request.session_id].append({
-            "Question": request.question,
-            "Answer": request.answer,
-            "Session_id": request.session_id,
-            "Name": request.name or "",
-            "Email": request.email or "",
-            "Role": request.role or "",
-        })
+        with _store_lock:
+            if request.session_id not in _session_qa:
+                _session_qa[request.session_id] = []
+            _session_qa[request.session_id].append({
+                "Question": request.question,
+                "Answer": request.answer,
+                "Session_id": request.session_id,
+                "Name": request.name or "",
+                "Email": request.email or "",
+                "Role": request.role or "",
+            })
+            _flush_store(_session_qa)
 
     # Also persist to CSV + Google Sheets (best effort)
     try:

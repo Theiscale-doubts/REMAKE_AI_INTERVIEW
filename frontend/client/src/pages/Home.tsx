@@ -100,12 +100,6 @@ export default function Home() {
                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                   </Button>
                 </Link>
-                <Link href="/results">
-                  <Button className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20 text-white transition-all">
-                    <ClipboardList className="h-5 w-5" />
-                    <span className="text-sm">View results</span>
-                  </Button>
-                </Link>
               </div>
 
               <div className="mt-8 flex items-center gap-6 text-sm text-neutral-400">
@@ -405,12 +399,6 @@ export default function Home() {
                 <Button className="inline-flex items-center gap-2 px-3 py-2.5 rounded-lg border border-indigo-500/30 bg-indigo-600 hover:bg-indigo-500 text-white transition-colors">
                   <Mic className="h-4 w-4" />
                   <span className="text-sm font-medium">Start interview</span>
-                </Button>
-              </Link>
-              <Link href="/results">
-                <Button className="inline-flex items-center gap-2 px-3 py-2.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors">
-                  <ClipboardList className="h-4 w-4" />
-                  <span className="text-sm">View results</span>
                 </Button>
               </Link>
             </div>

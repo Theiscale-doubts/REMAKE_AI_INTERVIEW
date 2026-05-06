@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocation } from "wouter";
 import {
   Shield,
   ChevronDown,
@@ -23,6 +24,7 @@ const API_BASE_URL = `${(import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
 const TOTAL_QUESTIONS = 9;
 
 export default function VoxHireApp() {
+  const [, setLocation] = useLocation();
   const [showInterview, setShowInterview] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [resultsSessionId, setResultsSessionId] = useState("");
@@ -65,9 +67,7 @@ export default function VoxHireApp() {
           setSessionId("");
         }}
         onFinishInterview={(finalSessionId) => {
-          setShowInterview(false);
-          setResultsSessionId(finalSessionId);
-          setShowResults(true);
+          setLocation(`/results/${finalSessionId}`);
         }}
       />
     );

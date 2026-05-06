@@ -37,6 +37,7 @@ yarn-error.log*
 backend/interview_log.csv
 backend/interview_log.csv.bak
 backend/.tmp/
+backend/session_store.json
 
 # OS
 .DS_Store
