@@ -1,3 +1,7 @@
+# Documentation
+*.md
+!README.md
+
 # Python
 __pycache__/
 *.pyc
@@ -17,28 +21,84 @@ htmlcov/
 .mypy_cache/
 .pyre/
 .pytype/
+*.egg-info/
+dist-info/
+*.egg
 
 # Node.js
 node_modules/
 dist/
 build/
-.env
+*.tsbuildinfo
+.next/
 
-# VSCode
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE & Editors
 .vscode/
 .claude/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.iml
+.sublime-project
+.sublime-workspace
 
-# Logs
+# Logs & Temporary
 logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 backend/interview_log.csv
 backend/interview_log.csv.bak
 backend/.tmp/
 backend/session_store.json
+backend/invite_store.json
 
-# OS
+# OS Files
 .DS_Store
+.AppleDouble
+.LSOverride
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Local Development
+.cache/
+.parcel-cache
+.turbo/
+turbo.json.local
+
+# Package Manager Lock Files (optional - uncomment if you want to lock versions)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Build Artifacts
+coverage/
+.nyc_output/
+*.rar
+*.zip
+
+# IDE Specific
+*.sublime-workspace
+*.code-workspace
+.history/
+
+# OS Specific
+[Tt]humbs.db
+[Dd]esktop.ini
+.AppleDouble
+.LSOverride

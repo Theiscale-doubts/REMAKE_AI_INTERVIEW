@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#050505;}
+::selection{background:rgba(177,18,38,.4);color:#F5F5F5;}
+@keyframes vh-pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+@keyframes vh-fade-up{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+@keyframes vh-wave{from{transform:scaleY(0.35);}to{transform:scaleY(1);}}
+@keyframes vh-drift{0%,100%{opacity:.5;transform:translateX(-4%);}50%{opacity:.9;transform:translateX(4%);}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:{{ pageBg }};color:#F5F5F5;font-family:'Archivo',sans-serif;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased" data-screen-label="Home">
+
+  <!-- Header -->
+  <header style="position:sticky;top:0;z-index:20;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);background:rgba(5,5,5,.82);border-bottom:1px solid rgba(255,255,255,0.06)">
+    <div style="max-width:1024px;margin:0 auto;padding:0 28px;height:64px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;flex-direction:column;line-height:1.2">
+        <span style="font-size:15px;font-weight:700;letter-spacing:0.1em">VOXHIRE</span>
+        <span style="font-size:9.5px;font-weight:500;letter-spacing:0.2em;color:#7C7C84;text-transform:uppercase">AI Interview Platform</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:7px;flex-shrink:0;opacity:.65">
+        <span style="font-size:9.5px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#7C7C84;white-space:nowrap">Powered by</span>
+        <img src="assets/iscale-logo.png" alt="The iScale" style="height:16px;width:auto">
+      </div>
+    </div>
+  </header>
+
+  <main style="flex:1;display:grid;grid-template-columns:{{ gridCols }};justify-content:{{ gridJustify }};gap:56px;align-items:start;max-width:1200px;width:100%;margin:0 auto;padding:24px 32px;box-sizing:border-box">
+    <!-- Hero -->
+    <section style="position:relative;text-align:{{ heroAlign }};padding-top:{{ heroPadTop }};animation:vh-fade-up .6s cubic-bezier(.16,1,.3,1) both">
+      <div style="position:absolute;top:-10%;left:-14%;width:125%;height:115%;pointer-events:none;background:radial-gradient(55% 45% at 38% 35%, {{ accent }}14, transparent 70%);filter:blur(28px);animation:vh-drift 14s ease-in-out infinite"></div>
+      <div style="display:inline-flex;align-items:center;gap:9px;border:1px solid rgba(255,255,255,0.08);background:#111214;border-radius:999px;padding:7px 16px;font-size:12px;font-weight:500;color:#B3B3B8;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04)">
+        <span style="width:6px;height:6px;border-radius:50%;background:{{ accent }};animation:vh-pulse 2s ease-in-out infinite"></span>
+        Welcome — your AI interview is ready
+      </div>
+      <h1 style="margin:26px 0 0;font-size:52px;line-height:1.06;letter-spacing:-0.03em;font-weight:650">
+        Your AI Interview<br>
+        <span style="color:#B3B3B8">Starts Here</span>
+      </h1>
+      <p style="margin:20px 0 0;max-width:480px;font-size:16.5px;line-height:1.65;color:#B3B3B8">
+        Complete your interview using voice responses. Your answers are securely analyzed and reviewed by The iScale hiring team.
+      </p>
+      <div style="margin-top:34px;display:flex;align-items:center;justify-content:{{ ctaJustify }};gap:14px;flex-wrap:wrap">
+        <a href="02 Interview Setup.dc.html" style="text-decoration:none">
+          <button style="display:inline-flex;align-items:center;gap:10px;padding:16px 32px;font-size:15px;font-weight:600;white-space:nowrap;font-family:'Archivo',sans-serif;color:#F5F5F5;background:{{ accentGrad }};border:1px solid rgba(255,255,255,0.1);border-radius:12px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,0.14),0 8px 30px rgba(0,0,0,.35);transition:transform .2s ease-out,filter .2s ease-out,box-shadow .2s ease-out" style-hover="transform:translateY(-2px);filter:brightness(1.08);box-shadow:inset 0 1px 0 rgba(255,255,255,0.14),0 12px 36px rgba(0,0,0,.45)" style-active="transform:translateY(0);filter:brightness(0.95)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
+            Start Interview
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+          </button>
+        </a>
+        <a href="#guidelines" style="text-decoration:none">
+          <button style="display:inline-flex;align-items:center;gap:9px;padding:16px 24px;font-size:14.5px;font-weight:500;white-space:nowrap;font-family:'Archivo',sans-serif;color:#B3B3B8;background:transparent;border:1px solid rgba(255,255,255,0.07);border-radius:12px;cursor:pointer;transition:border-color .2s ease-out,color .2s ease-out,transform .2s ease-out" style-hover="border-color:rgba(255,255,255,0.16);color:#F5F5F5;transform:translateY(-1px)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+            Interview Guidelines
+          </button>
+        </a>
+      </div>
+      <div style="position:relative;margin-top:52px;display:flex;align-items:center;gap:4px;height:44px;max-width:420px;justify-content:{{ ctaJustify }}">
+        <sc-for list="{{ heroWave }}" as="b" hint-placeholder-count="0">
+          <span style="width:3px;border-radius:999px;flex-shrink:0;background:{{ b.color }};height:{{ b.h }};transform-origin:center;animation:vh-wave {{ b.dur }} ease-in-out {{ b.delay }} infinite alternate"></span>
+        </sc-for>
+      </div>
+      <p style="position:relative;margin:12px 0 0;font-size:10.5px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#7C7C84">Voice-first · Proctored · Reviewed by humans</p>
+    </section>
+
+    <!-- Before You Begin -->
+    <section id="guidelines">
+      <div style="background:{{ cardBg }};border:1px solid rgba(255,255,255,0.07);border-radius:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04),0 20px 50px rgba(0,0,0,.5),0 0 80px {{ accent }}0A;overflow:hidden;animation:vh-fade-up .6s cubic-bezier(.16,1,.3,1) .12s both;transition:box-shadow .3s ease-out" style-hover="box-shadow:inset 0 1px 0 rgba(255,255,255,0.04),0 20px 50px rgba(0,0,0,.5),0 0 90px {{ accent }}14">
+        <div style="padding:22px 28px 18px;border-bottom:1px solid rgba(255,255,255,0.06)">
+          <h2 style="margin:0;font-size:18px;font-weight:600;letter-spacing:-0.02em">Before You Begin</h2>
+          <p style="margin:6px 0 0;font-size:13px;color:#B3B3B8">A quick checklist so your interview goes smoothly.</p>
+        </div>
+
+        <div style="padding:24px 28px;display:flex;flex-direction:column;gap:22px">
+          <div style="display:flex;align-items:center;gap:16px;animation:vh-fade-up .5s ease-out 0.20s both">
+            <span style="width:36px;height:36px;border-radius:10px;background:#17181B;border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;flex-shrink:0"><svg viewBox="0 0 24 24" fill="none" stroke="{{ accentSoft }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="22" x2="16" y1="9" y2="15"></line><line x1="16" x2="22" y1="9" y2="15"></line></svg></span>
+            <span style="flex:1;font-size:14.5px;color:#B3B3B8">Find a quiet environment</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#5FA47F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;opacity:.7;flex-shrink:0"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;animation:vh-fade-up .5s ease-out 0.28s both">
+            <span style="width:36px;height:36px;border-radius:10px;background:#17181B;border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;flex-shrink:0"><svg viewBox="0 0 24 24" fill="none" stroke="{{ accentSoft }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg></span>
+            <span style="flex:1;font-size:14.5px;color:#B3B3B8">Allow microphone access when prompted</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#5FA47F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;opacity:.7;flex-shrink:0"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;animation:vh-fade-up .5s ease-out 0.36s both">
+            <span style="width:36px;height:36px;border-radius:10px;background:#17181B;border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;flex-shrink:0"><svg viewBox="0 0 24 24" fill="none" stroke="{{ accentSoft }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M12 20h.01"></path><path d="M2 8.82a15 15 0 0 1 20 0"></path><path d="M5 12.859a10 10 0 0 1 14 0"></path><path d="M8.5 16.429a5 5 0 0 1 7 0"></path></svg></span>
+            <span style="flex:1;font-size:14.5px;color:#B3B3B8">Use a stable internet connection</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#5FA47F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;opacity:.7;flex-shrink:0"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;animation:vh-fade-up .5s ease-out 0.44s both">
+            <span style="width:36px;height:36px;border-radius:10px;background:#17181B;border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;flex-shrink:0"><svg viewBox="0 0 24 24" fill="none" stroke="{{ accentSoft }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><line x1="10" x2="14" y1="2" y2="2"></line><line x1="12" x2="15" y1="14" y2="11"></line><circle cx="12" cy="14" r="8"></circle></svg></span>
+            <span style="flex:1;font-size:14.5px;color:#B3B3B8">Complete the interview in one sitting</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#5FA47F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;opacity:.7;flex-shrink:0"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;animation:vh-fade-up .5s ease-out 0.52s both">
+            <span style="width:36px;height:36px;border-radius:10px;background:#17181B;border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;flex-shrink:0"><svg viewBox="0 0 24 24" fill="none" stroke="{{ accentSoft }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path><path d="m9 12 2 2 4-4"></path></svg></span>
+            <span style="flex:1;font-size:14.5px;color:#B3B3B8">Responses are securely stored</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#5FA47F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;opacity:.7;flex-shrink:0"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+          </div>
+        </div>
+
+        <div style="margin:0 28px;height:1px;background:rgba(255,255,255,0.06)"></div>
+
+        <div style="padding:22px 28px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div style="border:1px solid rgba(255,255,255,0.06);background:#0B0B0C;border-radius:12px;padding:16px;transition:border-color .2s ease-out" style-hover="border-color:rgba(255,255,255,0.12)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;margin-bottom:12px"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <p style="margin:0;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.14em;color:#7C7C84">Estimated duration</p>
+            <p style="margin:5px 0 0;font-size:13.5px;font-weight:500;color:#F5F5F5">10–15 minutes</p>
+          </div>
+          <div style="border:1px solid rgba(255,255,255,0.06);background:#0B0B0C;border-radius:12px;padding:16px;transition:border-color .2s ease-out" style-hover="border-color:rgba(255,255,255,0.12)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;margin-bottom:12px"><line x1="10" x2="21" y1="6" y2="6"></line><line x1="10" x2="21" y1="12" y2="12"></line><line x1="10" x2="21" y1="18" y2="18"></line><path d="M4 6h1v4"></path><path d="M4 10h2"></path><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"></path></svg>
+            <p style="margin:0;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.14em;color:#7C7C84">Assessment scope</p>
+            <p style="margin:5px 0 0;font-size:13.5px;font-weight:500;color:#F5F5F5">9–10 questions, adapts as you go</p>
+          </div>
+          <div style="border:1px solid rgba(255,255,255,0.06);background:#0B0B0C;border-radius:12px;padding:16px;transition:border-color .2s ease-out" style-hover="border-color:rgba(255,255,255,0.12)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;margin-bottom:12px"><path d="M2 10v3"></path><path d="M6 6v11"></path><path d="M10 3v18"></path><path d="M14 8v7"></path><path d="M18 5v13"></path><path d="M22 10v3"></path></svg>
+            <p style="margin:0;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.14em;color:#7C7C84">Interview mode</p>
+            <p style="margin:5px 0 0;font-size:13.5px;font-weight:500;color:#F5F5F5">Voice AI</p>
+          </div>
+          <div style="border:1px solid rgba(255,255,255,0.06);background:#0B0B0C;border-radius:12px;padding:16px;transition:border-color .2s ease-out" style-hover="border-color:rgba(255,255,255,0.12)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;margin-bottom:12px"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><polyline points="16 11 18 13 22 9"></polyline></svg>
+            <p style="margin:0;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.14em;color:#7C7C84">Evaluation</p>
+            <p style="margin:5px 0 0;font-size:13.5px;font-weight:500;color:#F5F5F5">AI + recruiter review</p>
+          </div>
+        </div>
+
+        </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer style="border-top:1px solid rgba(255,255,255,0.06)">
+    <div style="max-width:1024px;margin:0 auto;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:13px;color:#7C7C84">
+      <p style="margin:0;white-space:nowrap">© 2026 VoxHire</p>
+      <div style="display:flex;align-items:center;gap:7px;flex-shrink:0;opacity:.65">
+        <span style="font-size:9.5px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:#7C7C84;white-space:nowrap">Powered by</span>
+        <img src="assets/iscale-logo.png" alt="The iScale" style="height:16px;width:auto">
+      </div>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;accent&quot;: {
+    &quot;editor&quot;: &quot;color&quot;,
+    &quot;default&quot;: &quot;#B11226&quot;,
+    &quot;tsType&quot;: &quot;string&quot;,
+    &quot;options&quot;: [&quot;#B11226&quot;, &quot;#6E0F1E&quot;, &quot;#8C5A2B&quot;, &quot;#1F4D3A&quot;],
+    &quot;section&quot;: &quot;Feel&quot;
+  },
+  &quot;tone&quot;: {
+    &quot;editor&quot;: &quot;enum&quot;,
+    &quot;default&quot;: &quot;Onyx&quot;,
+    &quot;tsType&quot;: &quot;string&quot;,
+    &quot;options&quot;: [&quot;Onyx&quot;, &quot;Graphite&quot;, &quot;Midnight&quot;],
+    &quot;section&quot;: &quot;Feel&quot;
+  },
+  &quot;layout&quot;: {
+    &quot;editor&quot;: &quot;enum&quot;,
+    &quot;default&quot;: &quot;Split&quot;,
+    &quot;tsType&quot;: &quot;string&quot;,
+    &quot;options&quot;: [&quot;Split&quot;, &quot;Centered&quot;],
+    &quot;section&quot;: &quot;Structure&quot;
+  }
+}">class Component extends DCLogic {
+  renderVals() {
+    const accent = this.props.accent ?? "#B11226";
+    const tone = this.props.tone ?? "Onyx";
+    const layout = this.props.layout ?? "Split";
+    const tones = {
+      Onyx: { page: "#050505", card: "#111214" },
+      Graphite: { page: "#0B0B0C", card: "#151619" },
+      Midnight: { page: "#04060A", card: "#0E1116" },
+    };
+    const t = tones[tone] || tones.Onyx;
+    const split = layout !== "Centered";
+    const heroWave = Array.from({ length: 36 }, (_, i) => {
+      const a = Math.abs(Math.sin(i * 0.9)) * 0.7 + Math.abs(Math.sin(i * 0.31)) * 0.3;
+      return {
+        h: `${8 + Math.round(a * 30)}px`,
+        dur: `${(1.7 + (i % 5) * 0.28).toFixed(2)}s`,
+        delay: `-${(i * 0.13).toFixed(2)}s`,
+        color: i % 5 === 2 ? `${accent}99` : "#232428",
+      };
+    });
+    return {
+      heroWave,
+      accentSoft: `color-mix(in oklab, ${accent} 65%, #B3B3B8)`,
+      accent,
+      accentGrad: `linear-gradient(180deg, color-mix(in oklab, ${accent} 82%, #ffffff) 0%, ${accent} 100%)`,
+      pageBg: t.page,
+      cardBg: t.card,
+      gridCols: split ? "1.05fr 1fr" : "minmax(0, 720px)",
+      gridJustify: split ? "stretch" : "center",
+      heroAlign: split ? "left" : "center",
+      ctaJustify: split ? "flex-start" : "center",
+      heroPadTop: split ? "36px" : "20px",
+    };
+  }
+}</script>
+</body>
+</html>

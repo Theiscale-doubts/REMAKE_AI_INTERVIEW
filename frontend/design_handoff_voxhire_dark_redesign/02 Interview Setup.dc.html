@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#050505;}
+::selection{background:rgba(177,18,38,.4);color:#F5F5F5;}
+@keyframes vh-pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+@keyframes vh-fade-up{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+input:focus,select:focus{outline:none;border-color:#B11226 !important;box-shadow:0 0 0 3px rgba(177,18,38,.15) !important;}
+input::placeholder{color:#7C7C84;}
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:#050505;color:#F5F5F5;font-family:'Archivo',sans-serif;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased" data-screen-label="Interview Setup">
+
+  <!-- Header -->
+  <header style="position:sticky;top:0;z-index:20;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);background:rgba(5,5,5,.82);border-bottom:1px solid rgba(255,255,255,0.06)">
+    <div style="max-width:1120px;margin:0 auto;padding:0 28px;height:64px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;flex-direction:column;line-height:1.2">
+        <span style="font-size:15px;font-weight:700;letter-spacing:0.1em">VOXHIRE</span>
+        <span style="font-size:9.5px;font-weight:500;letter-spacing:0.2em;color:#7C7C84;text-transform:uppercase">AI Interview Platform</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <span style="font-size:11px;color:#7C7C84;white-space:nowrap">Powered by</span>
+        <img src="assets/iscale-logo.png" alt="The iScale" style="height:20px;width:auto;opacity:.95">
+      </div>
+    </div>
+  </header>
+
+  <main style="flex:1;max-width:1120px;margin:0 auto;padding:32px 28px;width:100%;box-sizing:border-box">
+    <div style="max-width:620px;margin-bottom:32px;animation:vh-fade-up .6s cubic-bezier(.16,1,.3,1) both">
+      <div style="display:inline-flex;align-items:center;gap:9px;border:1px solid rgba(255,255,255,0.08);background:#111214;border-radius:999px;padding:7px 16px;font-size:12px;font-weight:500;color:#B3B3B8;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);margin-bottom:16px">
+        <span style="width:6px;height:6px;border-radius:50%;background:#B11226;animation:vh-pulse 2s ease-in-out infinite"></span>
+        Step 1 of 2 · Interview setup
+      </div>
+      <h1 style="margin:0;font-size:38px;line-height:1.08;letter-spacing:-0.03em;font-weight:650">Set up your interview</h1>
+      <p style="margin:12px 0 0;font-size:16px;line-height:1.6;color:#B3B3B8">
+        Complete your details and pick a role. Your AI interviewer will speak each question aloud and listen to your answers.
+      </p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 0.85fr;gap:24px;align-items:start">
+
+      <!-- Left: candidate details -->
+      <section style="background:#111214;border:1px solid rgba(255,255,255,0.06);border-radius:16px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04),0 8px 30px rgba(0,0,0,.35);overflow:hidden;animation:vh-fade-up .6s cubic-bezier(.16,1,.3,1) .08s both">
+        <div style="padding:24px 28px 20px;border-bottom:1px solid rgba(255,255,255,0.06)">
+          <h2 style="margin:0;font-size:17px;font-weight:600;letter-spacing:-0.01em">Your details</h2>
+          <p style="margin:5px 0 0;font-size:13px;color:#B3B3B8">Tell us about yourself</p>
+        </div>
+        <div style="padding:28px;display:flex;flex-direction:column;gap:24px">
+
+          <div style="display:flex;align-items:center;gap:20px">
+            <div style="width:76px;height:76px;border-radius:14px;border:1px solid rgba(255,255,255,0.1);background:#17181B;display:grid;place-items:center;flex-shrink:0;overflow:hidden">
+              <sc-if value="{{ photo }}" hint-placeholder-val="{{ false }}">
+                <img src="{{ photo }}" alt="Profile" style="width:100%;height:100%;object-fit:cover">
+              </sc-if>
+              <sc-if value="{{ noPhoto }}" hint-placeholder-val="{{ true }}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              </sc-if>
+            </div>
+            <div>
+              <label style="display:block;font-size:13px;font-weight:500;margin-bottom:9px">Profile photo <span style="color:#7C7C84;font-weight:400">(optional)</span></label>
+              <button onClick="{{ pickPhoto }}" style="display:inline-flex;align-items:center;gap:8px;padding:9px 16px;font-size:13px;font-weight:500;white-space:nowrap;font-family:'Archivo',sans-serif;color:#F5F5F5;background:#17181B;border:1px solid rgba(255,255,255,0.08);border-radius:10px;cursor:pointer;transition:border-color .2s ease-out" style-hover="border-color:rgba(200,29,37,.5)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#B3B3B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
+                Upload photo
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:9px">Full name <span style="color:#C81D25">*</span></label>
+            <div style="position:relative">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;position:absolute;left:14px;top:50%;transform:translateY(-50%)"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              <input type="text" placeholder="Enter your full name" style="width:100%;box-sizing:border-box;background:#0B0B0C;border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#F5F5F5;font-size:13.5px;font-family:'Archivo',sans-serif;padding:13px 16px 13px 40px;transition:border-color .2s ease-out,box-shadow .2s ease-out">
+            </div>
+          </div>
+
+          <div>
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:9px">Email address <span style="color:#C81D25">*</span></label>
+            <div style="position:relative">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;position:absolute;left:14px;top:50%;transform:translateY(-50%)"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+              <input type="email" placeholder="you@example.com" style="width:100%;box-sizing:border-box;background:#0B0B0C;border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#F5F5F5;font-size:13.5px;font-family:'Archivo',sans-serif;padding:13px 16px 13px 40px;transition:border-color .2s ease-out,box-shadow .2s ease-out">
+            </div>
+          </div>
+
+          <div>
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:9px">Invite code</label>
+            <div style="position:relative">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;position:absolute;left:14px;top:50%;transform:translateY(-50%)"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path></svg>
+              <input type="text" placeholder="Enter the invite code you received" style="width:100%;box-sizing:border-box;background:#0B0B0C;border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#F5F5F5;font-size:13.5px;font-family:'Archivo',sans-serif;padding:13px 16px 13px 40px;transition:border-color .2s ease-out,box-shadow .2s ease-out">
+            </div>
+          </div>
+
+          <div>
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:9px">Job role <span style="color:#C81D25">*</span></label>
+            <div style="position:relative">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;position:absolute;left:14px;top:50%;transform:translateY(-50%);z-index:1"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path><rect width="20" height="14" x="2" y="6" rx="2"></rect></svg>
+              <select style="width:100%;box-sizing:border-box;appearance:none;-webkit-appearance:none;background:#0B0B0C;border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#F5F5F5;font-size:13.5px;font-family:'Archivo',sans-serif;padding:13px 40px 13px 40px;cursor:pointer;transition:border-color .2s ease-out,box-shadow .2s ease-out">
+                <option value="frontend">Front-End Developer</option>
+                <option value="datascience">Data Scientist</option>
+                <option value="data_analytics">Data Analytics</option>
+                <option value="product">Product Manager</option>
+                <option value="devops">DevOps Engineer</option>
+                <option value="hr">HR / Managerial</option>
+              </select>
+              <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none"><path d="m6 9 6 6 6-6"></path></svg>
+            </div>
+            <p style="margin:10px 0 0;font-size:11.5px;line-height:1.55;color:#7C7C84">Frontend — AI-generated questions tailored to this role, answered by voice.</p>
+          </div>
+        </div>
+
+        <div style="padding:24px 28px;border-top:1px solid rgba(255,255,255,0.06);background:rgba(5,5,5,.45)">
+          <a href="03 Live Interview.dc.html" style="text-decoration:none;display:block">
+            <button style="width:100%;display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:15px 32px;font-size:15px;font-weight:600;white-space:nowrap;font-family:'Archivo',sans-serif;color:#F5F5F5;background:linear-gradient(180deg,#C81D25 0%,#B11226 100%);border:1px solid rgba(255,255,255,0.1);border-radius:12px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,0.14),0 8px 30px rgba(0,0,0,.35);transition:transform .2s ease-out,filter .2s ease-out" style-hover="transform:translateY(-1px);filter:brightness(1.08)" style-active="transform:translateY(0);filter:brightness(0.95)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
+              Start interview
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+            </button>
+          </a>
+        </div>
+      </section>
+
+      <!-- Right: what to expect -->
+      <div style="display:flex;flex-direction:column;gap:24px;animation:vh-fade-up .6s cubic-bezier(.16,1,.3,1) .16s both">
+        <section style="background:#111214;border:1px solid rgba(255,255,255,0.06);border-radius:16px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04),0 8px 30px rgba(0,0,0,.35);padding:28px">
+          <h2 style="margin:0 0 20px;font-size:17px;font-weight:600;letter-spacing:-0.01em">What to expect</h2>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div style="border:1px solid rgba(255,255,255,0.06);background:#0B0B0C;border-radius:12px;padding:16px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;margin-bottom:10px"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg>
+              <p style="margin:0;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.14em;color:#7C7C84">Questions</p>
+              <p style="margin:4px 0 0;font-size:13.5px;font-weight:500;color:#F5F5F5">9–10 adaptive</p>
+            </div>
+            <div style="border:1px solid rgba(255,255,255,0.06);background:#0B0B0C;border-radius:12px;padding:16px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;margin-bottom:10px"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              <p style="margin:0;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.14em;color:#7C7C84">Duration</p>
+              <p style="margin:4px 0 0;font-size:13.5px;font-weight:500;color:#F5F5F5">≈ 15–20 min</p>
+            </div>
+            <div style="border:1px solid rgba(255,255,255,0.06);background:#0B0B0C;border-radius:12px;padding:16px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;margin-bottom:10px"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+              <p style="margin:0;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.14em;color:#7C7C84">AI interviewer</p>
+              <p style="margin:4px 0 0;font-size:13.5px;font-weight:500;color:#F5F5F5">Speaks aloud</p>
+            </div>
+            <div style="border:1px solid rgba(255,255,255,0.06);background:#0B0B0C;border-radius:12px;padding:16px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;margin-bottom:10px"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
+              <p style="margin:0;font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.14em;color:#7C7C84">Your answers</p>
+              <p style="margin:4px 0 0;font-size:13.5px;font-weight:500;color:#F5F5F5">Voice, transcribed</p>
+            </div>
+          </div>
+          <div style="margin-top:20px;display:flex;flex-direction:column;gap:11px">
+            <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#B3B3B8">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#5FA47F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;flex-shrink:0"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
+              Camera &amp; microphone access is requested when the interview begins
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#B3B3B8">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#5FA47F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;flex-shrink:0"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+              Works best in Chrome or Edge on desktop
+            </div>
+          </div>
+        </section>
+
+        <section style="background:#111214;border:1px solid rgba(255,255,255,0.06);border-radius:16px;box-shadow:inset 0 1px 0 rgba(255,255,255,0.04),0 8px 30px rgba(0,0,0,.35);padding:28px">
+          <h2 style="margin:0 0 16px;font-size:14.5px;font-weight:600;letter-spacing:-0.01em">Preparation tips</h2>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.6;color:#B3B3B8">
+              <span style="width:20px;height:20px;border-radius:6px;background:#17181B;border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;font-size:10px;font-weight:600;color:#C81D25;flex-shrink:0;margin-top:2px">1</span>
+              Find a quiet, well-lit spot — the session is proctored by camera.
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.6;color:#B3B3B8">
+              <span style="width:20px;height:20px;border-radius:6px;background:#17181B;border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;font-size:10px;font-weight:600;color:#C81D25;flex-shrink:0;margin-top:2px">2</span>
+              Answer out loud in full sentences; explain the why, not just the what.
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.6;color:#B3B3B8">
+              <span style="width:20px;height:20px;border-radius:6px;background:#17181B;border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;font-size:10px;font-weight:600;color:#C81D25;flex-shrink:0;margin-top:2px">3</span>
+              Stay on this tab. Tab switches are recorded in your report.
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.6;color:#B3B3B8">
+              <span style="width:20px;height:20px;border-radius:6px;background:#17181B;border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;font-size:10px;font-weight:600;color:#C81D25;flex-shrink:0;margin-top:2px">4</span>
+              You can replay any question with the speaker button.
+            </div>
+          </div>
+        </section>
+
+        <div style="display:flex;align-items:flex-start;gap:12px;padding:16px 20px;border-radius:14px;border:1px solid rgba(255,255,255,0.06);background:rgba(17,18,20,.6)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#7C7C84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;flex-shrink:0;margin-top:2px"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"></path></svg>
+          <p style="margin:0;font-size:11.5px;line-height:1.6;color:#7C7C84">
+            Your responses are transcribed and saved securely for evaluation. Audio is processed for transcription only and never stored.
+          </p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer style="border-top:1px solid rgba(255,255,255,0.06);margin-top:24px">
+    <div style="max-width:1120px;margin:0 auto;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:13px;color:#7C7C84">
+      <p style="margin:0;white-space:nowrap">© 2026 VoxHire. All rights reserved.</p>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <span style="font-size:11px;color:#7C7C84;white-space:nowrap">Powered by</span>
+        <img src="assets/iscale-logo.png" alt="The iScale" style="height:20px;width:auto;opacity:.95">
+      </div>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { photo: null };
+  pickPhoto = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onloadend = () => this.setState({ photo: reader.result });
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+  renderVals() {
+    return {
+      photo: this.state.photo,
+      noPhoto: !this.state.photo,
+      pickPhoto: this.pickPhoto,
+    };
+  }
+}
+</script>
+</body>
+</html>
