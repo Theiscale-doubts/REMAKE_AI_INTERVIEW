@@ -37,6 +37,10 @@ const formatMarkdown = (text: string): string => {
 interface InterviewResult {
   score: number;
   feedback: string;
+  communication: number;
+  technical: number;
+  problemSolving: number;
+  photo?: string;
   areasForImprovement: string[];
   name?: string;
   email?: string;
@@ -92,6 +96,10 @@ export default function Results({
         setResult({
           score: data.score || 0,
           feedback: data.feedback || "",
+          communication: data.communication ?? 0,
+          technical: data.technical ?? 0,
+          problemSolving: data.problem_solving ?? 0,
+          photo: data.photo || "",
           areasForImprovement,
           name: data.name || "",
           email: data.email || "",
@@ -184,6 +192,9 @@ export default function Results({
   const displayName = name || result?.name || "Candidate";
   const displayEmail = email || result?.email || "";
   const displayRole = role || result?.role || "";
+  // Prefer a photo passed in as a prop; otherwise use the interview-time snapshot
+  // returned by the backend (shown when the report is opened via session ID).
+  const displayPhoto = photo || result?.photo || null;
 
  const downloadPDF = () => {
   if (!result) return;
@@ -214,6 +225,21 @@ export default function Results({
   pdf.setFontSize(22);
   pdf.setTextColor(255, 255, 255);
   pdf.text("Interview Evaluation Report", 105, 16, { align: "center" });
+
+  // Candidate verification snapshot — a framed badge in the top-right of the
+  // banner. Wrapped so a missing/invalid image never aborts the PDF; if it
+  // fails, the report simply generates without the photo.
+  if (displayPhoto && typeof displayPhoto === "string" && displayPhoto.startsWith("data:image")) {
+    try {
+      const fmt = displayPhoto.includes("image/png") ? "PNG" : "JPEG";
+      // White frame behind the photo so it reads cleanly over the blue banner.
+      pdf.setFillColor(255, 255, 255);
+      pdf.roundedRect(185.5, 3, 19, 19, 1.5, 1.5, "F");
+      pdf.addImage(displayPhoto, fmt, 186, 3.5, 18, 18);
+    } catch (e) {
+      console.warn("Skipped candidate photo in PDF:", e);
+    }
+  }
 
   // Reset text color to black
   pdf.setTextColor(0, 0, 0);
@@ -374,7 +400,7 @@ export default function Results({
 
             <div className="flex items-center gap-4">
               <div className="h-14 w-14 rounded-2xl overflow-hidden bg-surface-2 border border-hairline-strong grid place-items-center flex-shrink-0">
-                {photo ? <img src={photo} className="h-full w-full object-cover" /> : <User className="h-[22px] w-[22px] text-txt-low" />}
+                {displayPhoto ? <img src={displayPhoto} className="h-full w-full object-cover" /> : <User className="h-[22px] w-[22px] text-txt-low" />}
               </div>
               <div className="min-w-0">
                 <p className="font-semibold tracking-[-0.01em] truncate">{displayName}</p>
@@ -497,25 +523,32 @@ export default function Results({
               Performance breakdown
             </h2>
             <div className="mt-7 space-y-6">
-              {["Communication Skills", "Technical Knowledge", "Overall Impression"].map((label) => (
-                <div key={label}>
-                  <div className="flex items-center justify-between mb-2.5">
-                    <span className="text-[13.5px] text-txt-mid">{label}</span>
-                    <span className="text-[13.5px] font-medium tabular-nums text-txt-hi">
-                      {result.score * 10}%
-                    </span>
+              {[
+                { label: "Communication Skills", value: result.communication },
+                { label: "Technical Knowledge", value: result.technical },
+                { label: "Problem-Solving", value: result.problemSolving },
+              ].map(({ label, value }) => {
+                const pct = Math.max(0, Math.min(value, 100));
+                return (
+                  <div key={label}>
+                    <div className="flex items-center justify-between mb-2.5">
+                      <span className="text-[13.5px] text-txt-mid">{label}</span>
+                      <span className="text-[13.5px] font-medium tabular-nums text-txt-hi">
+                        {pct}%
+                      </span>
+                    </div>
+                    <div className="h-[7px] bg-[#26272B] rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-1000 ease-out"
+                        style={{
+                          width: `${pct}%`,
+                          background: "linear-gradient(90deg,#6E0F1E,#B11226)",
+                        }}
+                      ></div>
+                    </div>
                   </div>
-                  <div className="h-[7px] bg-[#26272B] rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-1000 ease-out"
-                      style={{
-                        width: `${result.score * 10}%`,
-                        background: "linear-gradient(90deg,#6E0F1E,#B11226)",
-                      }}
-                    ></div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
 

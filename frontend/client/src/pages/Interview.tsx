@@ -420,6 +420,9 @@ function InterviewPage({
   const elapsedIntervalRef = useRef<number | null>(null);
   const isRecordingRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Interview-time webcam snapshot: captured once, sent once with the first save.
+  const capturedPhotoRef = useRef<string | null>(null);
+  const photoSentRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const levelIntervalRef = useRef<number | null>(null);
   const peakLevelRef = useRef(0);
@@ -869,6 +872,30 @@ function InterviewPage({
     setSubmitted(false);
   };
 
+  // Grab a single downscaled JPEG frame from the live proctoring feed. Cached so
+  // it only runs once, and fully guarded so any failure just yields null (no
+  // photo) rather than disrupting the interview.
+  const captureSnapshot = (): string | null => {
+    if (capturedPhotoRef.current) return capturedPhotoRef.current;
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) return null;
+    try {
+      const targetW = 320;
+      const scale = targetW / video.videoWidth;
+      const canvas = document.createElement("canvas");
+      canvas.width = targetW;
+      canvas.height = Math.round(video.videoHeight * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+      capturedPhotoRef.current = dataUrl;
+      return dataUrl;
+    } catch {
+      return null;
+    }
+  };
+
   const submitAnswer = async () => {
     if (!transcript.trim()) {
       showCustomAlert("Please record an answer before submitting.");
@@ -878,6 +905,14 @@ function InterviewPage({
     setIsProcessing(true);
     setSubmitted(true); // Lock submit button
     setStatusText("Submitting...");
+
+    // Capture the verification snapshot once, and only attach it to a single
+    // save so we don't re-upload the image on every answer.
+    let photoForThisSave: string | null = null;
+    if (!photoSentRef.current) {
+      photoForThisSave = captureSnapshot();
+      if (photoForThisSave) photoSentRef.current = true;
+    }
 
     try {
       // Save the current Q&A
@@ -895,7 +930,8 @@ function InterviewPage({
           face_lost_count: proctorStats.faceLostCount,
           face_lost_seconds: Math.round(proctorStats.faceLostSeconds),
           multiple_faces_count: proctorStats.multipleFacesCount,
-          movement_events: proctorStats.movementEvents
+          movement_events: proctorStats.movementEvents,
+          photo: photoForThisSave
         })
       });
 

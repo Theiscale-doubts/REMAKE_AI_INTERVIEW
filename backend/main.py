@@ -55,6 +55,30 @@ def _flush_store(store: dict) -> None:
 
 _session_qa: dict[str, list] = _load_store()
 
+# ── Evaluation cache ──────────────────────────────────────────────────────
+# The LLM evaluation is generated ONCE per session and persisted here, so the
+# candidate's result page and the admin's result page (and their PDF downloads)
+# always show the exact same score and feedback. Without this cache, every page
+# load re-ran the LLM and produced a slightly different evaluation.
+_EVAL_FILE = os.path.join(os.path.dirname(__file__), "eval_store.json")
+_eval_lock = threading.Lock()
+
+def _load_eval_store() -> dict:
+    try:
+        with open(_EVAL_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+def _flush_eval_store(store: dict) -> None:
+    try:
+        with open(_EVAL_FILE, "w") as f:
+            json.dump(store, f)
+    except Exception as e:
+        print(f"Warning: could not persist eval store: {e}")
+
+_eval_store: dict = _load_eval_store()
+
 # ── Invite codes ──────────────────────────────────────────────────────────
 # Dynamic single-use invite codes generated on demand by the operator via the
 # /api/admin/* endpoints. Persisted to disk the same way as the session store so
@@ -142,6 +166,12 @@ class ChatRequest(BaseModel):
 class InterviewResult(BaseModel):
     score: float
     feedback: str
+    # Per-category percentages parsed from the evaluation, computed server-side
+    # so the breakdown cannot be forged from the browser/devtools.
+    communication: int = 0
+    technical: int = 0
+    problem_solving: int = 0
+    photo: str = ""
     name: str = ""
     email: str = ""
     role: str = ""
@@ -166,6 +196,9 @@ class SaveRequest(BaseModel):
     face_lost_seconds: int | None = None
     multiple_faces_count: int | None = None
     movement_events: int | None = None
+    # Interview-time webcam snapshot (data URL). Sent once; stored on the first
+    # entry of the session. Optional — absence just means no photo is shown.
+    photo: str | None = None
 
 @app.get("/api/check")
 def start_chek():
@@ -328,6 +361,11 @@ def save_endpoint(request: SaveRequest):
                 "MultipleFacesCount": request.multiple_faces_count or 0,
                 "MovementEvents": request.movement_events or 0,
             })
+            # Keep the snapshot on the FIRST entry only (that's what the report
+            # reads), and never overwrite one already captured. This also avoids
+            # duplicating the base64 image across every Q&A entry.
+            if request.photo and not _session_qa[request.session_id][0].get("Photo"):
+                _session_qa[request.session_id][0]["Photo"] = request.photo
             _flush_store(_session_qa)
 
     # Also persist to CSV + Google Sheets (best effort)
@@ -408,6 +446,15 @@ async def get_interview_results(session_id: str) -> InterviewResult:
         raise HTTPException(status_code=404, detail="Interview log not found. Please complete the interview first.")
 
     first_entry = log[0]
+
+    # Serve the stored evaluation if this session was already evaluated, so
+    # every viewer (candidate or admin) gets the identical score and feedback.
+    cached = _eval_store.get(session_id)
+    if cached and "score" in cached and "feedback" in cached:
+        score = float(cached["score"])
+        feedback = str(cached["feedback"])
+        return _build_result(log, first_entry, score, feedback)
+
     transcript = f"""
         Interview for: {first_entry.get('Role', 'N/A')}
         Candidate: {first_entry.get('Name', 'N/A')} ({first_entry.get('Email', 'N/A')})
@@ -478,6 +525,7 @@ EVALUATION GUIDELINES:
         message = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             max_tokens=2000,
+            temperature=0.0,
             messages=[
                 {"role": "user", "content": prompt}
             ]
@@ -493,6 +541,16 @@ EVALUATION GUIDELINES:
     score = extract_score(response_text)
     feedback = extract_feedback(response_text)
     add_values(["Evaluation", f"Score: {score}", f"Feedback: {feedback}"], username="Interview")
+
+    # Persist so later views of this session reuse this exact evaluation.
+    with _eval_lock:
+        _eval_store[session_id] = {"score": score, "feedback": feedback, "evaluated_at": time.time()}
+        _flush_eval_store(_eval_store)
+
+    return _build_result(log, first_entry, score, feedback)
+
+
+def _build_result(log: list, first_entry: dict, score: float, feedback: str) -> InterviewResult:
     # Counters are cumulative on the frontend, so the highest value is the final total.
     # Values may come back as strings (CSV/Sheets fallback) — parse defensively.
     def _final(key: str) -> int:
@@ -504,9 +562,15 @@ EVALUATION GUIDELINES:
                 pass
         return max(values, default=0)
 
+    communication, technical, problem_solving = extract_category_scores(feedback, score)
+
     return InterviewResult(
         score=score,
         feedback=feedback,
+        communication=communication,
+        technical=technical,
+        problem_solving=problem_solving,
+        photo=str(first_entry.get("Photo") or ""),
         name=str(first_entry.get("Name") or ""),
         email=str(first_entry.get("Email") or ""),
         role=str(first_entry.get("Role") or ""),
@@ -516,6 +580,40 @@ EVALUATION GUIDELINES:
         multiple_faces_count=_final("MultipleFacesCount"),
         movement_events=_final("MovementEvents"),
     )
+
+def extract_category_scores(feedback: str, score: float) -> tuple[int, int, int]:
+    """Parse the per-category percentages the LLM embeds in its feedback headings,
+    e.g. '## Communication (72%)'. These are the authoritative breakdown values —
+    parsing happens on the server from the persisted evaluation so the numbers
+    are identical for every viewer and cannot be tampered with client-side.
+
+    Falls back to a score-derived value only when a heading has no percentage.
+    """
+    import re
+
+    def _find(label_pattern: str) -> int | None:
+        # Match e.g. "## Communication (72%)" or "Communication Skills - 72%"
+        m = re.search(
+            rf'{label_pattern}[^\n\d]*?(\d{{1,3}})\s*%',
+            feedback,
+            re.IGNORECASE,
+        )
+        if m:
+            return max(0, min(int(m.group(1)), 100))
+        return None
+
+    fallback = int(max(0.0, min(score, 10.0)) * 10)
+
+    communication = _find(r'Communication')
+    technical = _find(r'Technical\s*Knowledge')
+    problem_solving = _find(r'Problem[\s-]*Solving')
+
+    return (
+        communication if communication is not None else fallback,
+        technical if technical is not None else fallback,
+        problem_solving if problem_solving is not None else fallback,
+    )
+
 
 def extract_score(response: str) -> float:
     """Extract the score from the LLM's response."""
