@@ -13,12 +13,17 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from tools import extract_values
-from agent import run_agent_turn
+from agent import run_agent_turn, GROQ_MODEL
 from tools import save_qa_tool, add_values
 from groq import Groq
 
 
-app = FastAPI()
+app = FastAPI(
+    title="VoxHire API",
+    description="AI-powered mock interview platform backend.",
+    version="1.0.0",
+    contact={"name": "Akshat Trivedi", "url": "https://github.com/Akshat-Trivedi14"},
+)
 
 _raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
 # Support wildcard "*" to allow all origins (useful when frontend domain changes),
@@ -507,6 +512,7 @@ EVALUATION GUIDELINES:
   * 8.1-10.0: EXTREMELY RARE, almost never given — flawless, expert-level answers throughout that would impress a senior interviewer at a top company; anything above 9 should essentially never happen
 - The vast majority of interviews MUST score 6.7 or below. Exceeding 6.7 requires spectacular, consistently outstanding answers across the whole transcript — treat it as an exception you must justify with specific quotes.
 - Short, generic, or partially wrong answers must pull the score down sharply. Never give benefit of the doubt.
+- SKIPPED / REFUSED / NON-ANSWERS: treat these as failures, not neutral gaps. If the candidate repeatedly says things like "skip this", "I don't know", "pass", gives a one-word non-answer, or otherwise declines to engage with most questions, that is disengagement, not partial credit — score the overall interview in the 2.0-3.0 range (or lower if nearly every question was skipped/blank). Do not let a couple of stronger answers average this up into the "Below the bar" or "Solid" bands — count each skip as a near-zero for that question when judging the whole transcript.
 - PERCENTAGES: Assign individual scores out of 100 for each category independently, applying the same strictness (most candidates: 40-67%; above 67% only for genuinely strong areas):
   * 86-100%: Exceptional performance, demonstrates mastery (rare)
   * 68-85%: Strong performance, shows solid competency (uncommon)
@@ -523,7 +529,7 @@ EVALUATION GUIDELINES:
 
     try:
         message = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=GROQ_MODEL,
             max_tokens=2000,
             temperature=0.0,
             messages=[
@@ -619,8 +625,10 @@ def extract_score(response: str) -> float:
     """Extract the score from the LLM's response."""
     import re
     
-    score_match = re.search(r'SCORE:\s*(\d+\.?\d*)', response, re.IGNORECASE)
-    
+    # Tolerate markdown emphasis around the label (models often render it as
+    # "**SCORE:** 5.0") — \**\s* on both sides of the colon absorbs that.
+    score_match = re.search(r'\**SCORE:\**\s*(\d+\.?\d*)', response, re.IGNORECASE)
+
     if score_match:
         try:
             score = float(score_match.group(1))
@@ -642,15 +650,15 @@ def extract_feedback(response: str) -> str:
     """Extract the feedback section from the LLM's response."""
     import re
     
-    feedback_match = re.search(r'FEEDBACK:\s*(.+)', response, re.IGNORECASE | re.DOTALL)
-    
+    feedback_match = re.search(r'\**FEEDBACK:\**\s*(.+)', response, re.IGNORECASE | re.DOTALL)
+
     if feedback_match:
-        return feedback_match.group(1).strip()
-    
-    score_match = re.search(r'SCORE:\s*\d+\.?\d*', response, re.IGNORECASE)
+        return feedback_match.group(1).strip().lstrip('*').strip()
+
+    score_match = re.search(r'\**SCORE:\**\s*\d+\.?\d*', response, re.IGNORECASE)
     if score_match:
         return response[score_match.end():].strip()
-    
+
     return response.strip()
 
     

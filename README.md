@@ -20,9 +20,9 @@ AI-powered mock interview platform. Candidates pick a domain, speak or type thei
 | Frontend | React 18 + Vite + TypeScript + Tailwind CSS |
 | Routing | Wouter (hash-based, SPA-safe on static hosts) |
 | Backend | FastAPI (Python 3.11) |
-| AI Agent | LangChain — Google Gemini 2.5 Flash (primary) / Groq Llama 3.3 70B (fallback) |
+| AI Agent | LangChain — OpenAI GPT-4o mini (primary) / Groq openai/gpt-oss-120b (fallback) |
 | Transcription | Groq Whisper Large v3 Turbo |
-| Evaluation | Groq Llama 3.3 70B Versatile |
+| Evaluation | Groq openai/gpt-oss-120b |
 | Data Storage | In-memory dict + JSON file persistence + Google Sheets (optional) |
 | Deployment | Render.com (backend + frontend) or Hostinger (static frontend) |
 
@@ -32,7 +32,7 @@ AI-powered mock interview platform. Candidates pick a domain, speak or type thei
 
 ### 1. Groq API — **Required**
 
-Used for: audio transcription (Whisper) and interview evaluation (Llama 3.3).
+Used for: audio transcription (Whisper) and interview evaluation (openai/gpt-oss-120b), plus a fallback for the interview agent itself if the OpenAI call fails.
 
 **Get it:**
 1. Go to [console.groq.com](https://console.groq.com)
@@ -49,22 +49,22 @@ GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
 
 ---
 
-### 2. Google Gemini API — **Required**
+### 2. OpenAI API — **Required**
 
-Used for: the AI interviewer agent (primary LLM). Falls back to Groq automatically if quota is hit.
+Used for: the AI interviewer agent (primary LLM, `gpt-4o-mini`). Falls back to Groq automatically if the call fails or rate-limits.
 
 **Get it:**
-1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-2. Sign in with a Google account
-3. Click **Create API key** → choose a project (or create one)
-4. Copy the key (starts with `AIza...`)
+1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+2. Sign in / create an account and set up billing (no free tier — usage is billed per token)
+3. Click **Create new secret key**
+4. Copy the key (starts with `sk-...`)
 
 **Environment variable:**
 ```
-GOOGLE_API_KEY=AIzaxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-**Free tier limits:** 1,500 requests/day on Gemini 2.5 Flash (as of 2025).
+**Pricing:** `gpt-4o-mini` is $0.15 / 1M input tokens, $0.60 / 1M output tokens (as of 2026) — chosen specifically for low per-interview cost.
 
 ---
 
@@ -111,8 +111,8 @@ For local development this defaults to `http://localhost:8000` if not set.
 
 | Variable | Required | Description |
 |---|---|---|
-| `GROQ_API_KEY` | Yes | Groq API key for Whisper transcription and Llama evaluation |
-| `GOOGLE_API_KEY` | Yes | Google Gemini API key for the interview agent |
+| `GROQ_API_KEY` | Yes | Groq API key for Whisper transcription, evaluation, and the interview-agent fallback |
+| `OPENAI_API_KEY` | Yes | OpenAI API key for the interview agent (primary LLM) |
 | `google_credentials_json` | No | Full service account JSON (one line) for Google Sheets logging |
 | `ALLOWED_ORIGINS` | No | Comma-separated frontend URLs for CORS (defaults to `*`) |
 | `PORT` | No | Port to run on (defaults to `8000`) |
@@ -120,7 +120,7 @@ For local development this defaults to `http://localhost:8000` if not set.
 **Example `backend/.env`:**
 ```env
 GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
-GOOGLE_API_KEY=AIzaxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 google_credentials_json={"type":"service_account",...}
 ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 ```
@@ -230,7 +230,7 @@ The repo includes `render.yaml` which defines both services. Push to GitHub and 
 
 Set these environment variables in the Render dashboard for **voxhire-backend**:
 - `GROQ_API_KEY`
-- `GOOGLE_API_KEY`
+- `OPENAI_API_KEY`
 - `google_credentials_json` (optional)
 - `ALLOWED_ORIGINS` — set to your frontend URL
 
@@ -258,7 +258,7 @@ Render's SPA rewrite rule (`/* → /index.html`) is already in `render.yaml`.
 VoxHire-main/
 ├── backend/
 │   ├── main.py             # FastAPI app, all endpoints
-│   ├── agent.py            # LangChain interview agent (Gemini + Groq)
+│   ├── agent.py            # LangChain interview agent (OpenAI + Groq)
 │   ├── tools.py            # CSV + Google Sheets persistence
 │   ├── requirements.txt
 │   └── .env                # (not committed) your API keys

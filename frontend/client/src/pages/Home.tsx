@@ -155,8 +155,11 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-hairline">
-        <div className="max-w-5xl mx-auto px-7 py-[18px] flex items-center justify-between gap-4 text-[13px] text-txt-low">
+        <div className="max-w-5xl mx-auto px-7 py-[18px] flex flex-col items-center gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4 text-[13px] text-txt-low">
           <p>© {new Date().getFullYear()} VoxHire. All rights reserved.</p>
+          <p className="text-[9.5px] font-medium uppercase tracking-[0.18em] text-txt-low opacity-65">
+            Developed &amp; managed by Akshat Trivedi
+          </p>
           <PoweredByIScale />
         </div>
       </footer>

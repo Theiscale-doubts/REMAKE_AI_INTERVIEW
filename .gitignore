@@ -102,3 +102,4 @@ coverage/
 [Dd]esktop.ini
 .AppleDouble
 .LSOverride
+backend/eval_store.json

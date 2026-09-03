@@ -4,20 +4,40 @@ dotenv.load_dotenv(_os.path.join(_os.path.dirname(__file__), ".env"))
 from typing import Dict
 import random
 import re
+import warnings
+from langchain_core._api.deprecation import LangChainDeprecationWarning
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 
-# Initialize LLM model instance with HIGHER temperature for more variety
-google_llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
+# RunnableWithMessageHistory is deprecated in favor of LangGraph's persistence,
+# but migrating would mean rearchitecting the whole session/history flow here
+# for no functional gain — the API still works fine. Silence just this one
+# warning instead of leaving noisy deprecation output on every request.
+warnings.filterwarnings("ignore", category=LangChainDeprecationWarning, message=".*RunnableWithMessageHistory.*")
+
+# Single source of truth for the Groq model id — Groq periodically retires
+# model names (this broke twice from a stale hardcoded "llama-3.3-70b-versatile"
+# in two different files), so every Groq call in the backend must import this
+# constant instead of hardcoding its own string. Override via GROQ_MODEL in
+# .env if Groq retires this one too — no code change needed.
+GROQ_MODEL = _os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+# Initialize LLM model instance with HIGHER temperature for more variety.
+# max_tokens caps completion length — the prompt already constrains responses
+# to one short remark + one short question + two label lines, so this only
+# cuts off runaway generations, never a normal reply.
+openai_llm = ChatOpenAI(
+    model="gpt-4o-mini",
     temperature=0.9,
+    max_tokens=350,
 )
 groq_llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model=GROQ_MODEL,
     temperature=0.9,
+    max_tokens=350,
 )
 session_domains = {}
 session_topics_covered = {}  # NEW: Track covered topics per session
@@ -27,10 +47,21 @@ session_difficulty = {}  # NEW: Track adaptive difficulty level (1-5) per sessio
 # Session store for histories
 session_store: Dict[str, InMemoryChatMessageHistory] = {}
 
+# Cap how much prior conversation is resent to the model each turn. The model
+# doesn't need the verbatim old Q&A to stay coherent — covered topics and the
+# adaptive difficulty level already carry that state forward turn to turn —
+# so this bounds per-request tokens instead of letting them grow with every
+# question asked in the interview.
+HISTORY_TURNS_TO_KEEP = 3  # keep the last 3 Q&A exchanges (6 messages)
+
 def get_session_history(session_id: str) -> InMemoryChatMessageHistory:
     if session_id not in session_store:
         session_store[session_id] = InMemoryChatMessageHistory()
-    return session_store[session_id]
+    history = session_store[session_id]
+    max_messages = HISTORY_TURNS_TO_KEEP * 2
+    if len(history.messages) > max_messages:
+        history.messages = history.messages[-max_messages:]
+    return history
 
 # Difficulty bar applied to every domain unless the domain defines its own
 DEFAULT_DIFFICULTY = (
@@ -329,12 +360,12 @@ prompt = ChatPromptTemplate.from_messages([
     MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}"),
 ])
-google_agent = prompt | google_llm
+openai_agent = prompt | openai_llm
 groq_agent = prompt | groq_llm
 
 # Wrap with memory/history
-google_agent_with_memory = RunnableWithMessageHistory(
-    google_agent,
+openai_agent_with_memory = RunnableWithMessageHistory(
+    openai_agent,
     get_session_history,
     input_messages_key="input",
     history_messages_key="chat_history",
@@ -348,8 +379,8 @@ groq_agent_with_memory = RunnableWithMessageHistory(
 )
 def safe_invoke_agent(payload, session_id):
     try:
-        # Try Google first
-        return google_agent_with_memory.invoke(
+        # Try OpenAI first
+        return openai_agent_with_memory.invoke(
             payload,
             config={"configurable": {"session_id": session_id}}
         )
@@ -361,7 +392,7 @@ def safe_invoke_agent(payload, session_id):
         if any(k in error_msg for k in [
             "quota", "rate limit", "resource exhausted", "429"
         ]):
-            print("WARNING: Google LLM limit exceeded. Switching to Groq...")
+            print("WARNING: OpenAI LLM limit exceeded. Switching to Groq...")
             
             return groq_agent_with_memory.invoke(
                 payload,
@@ -409,9 +440,16 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None):
 
     # Get domain-specific context
     domain_info = DOMAIN_QUESTIONS.get(domain_text, {})
-    topics_list = domain_info.get("topics", [])
-    
-    # Build domain context with available topics
+    all_topics = domain_info.get("topics", [])
+
+    # Track covered topics (moved up so we can filter the topics list below —
+    # already-covered topics are dead weight in the prompt since the model is
+    # told never to revisit them anyway)
+    covered = session_topics_covered.get(session_id, [])
+    covered_str = ", ".join(covered) if covered else "None yet"
+    topics_list = [t for t in all_topics if t.split("(")[0].strip() not in covered]
+
+    # Build domain context with available (uncovered) topics only
     domain_context = ""
     difficulty = domain_info.get("difficulty", DEFAULT_DIFFICULTY)
     if difficulty:
@@ -419,18 +457,16 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None):
     domain_context += f"AVAILABLE TOPICS FOR {domain_text.upper()}:\n"
     for i, topic in enumerate(topics_list, 1):
         domain_context += f"{i}. {topic}\n"
-    
-    # Add some starter questions for inspiration (randomized)
+
+    # Add starter questions for inspiration on the first question only — later
+    # turns already have real candidate answers to bridge from, so the extra
+    # examples stop earning their token cost.
     sample_starters = domain_info.get("sample_starters", [])
-    if sample_starters:
+    if sample_starters and current_q == 1:
         random_samples = random.sample(sample_starters, min(3, len(sample_starters)))
         domain_context += f"\nEXAMPLE QUESTIONS (for inspiration, vary your wording):\n"
         for sample in random_samples:
             domain_context += f"- {sample}\n"
-    
-    # Track covered topics
-    covered = session_topics_covered.get(session_id, [])
-    covered_str = ", ".join(covered) if covered else "None yet"
 
     # Adaptive difficulty: level going into this turn, before we know how the
     # candidate's latest answer scores (that's judged by the model this turn).

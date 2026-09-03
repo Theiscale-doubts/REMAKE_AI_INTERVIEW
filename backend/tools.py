@@ -20,8 +20,11 @@ try:
     credentials_json = os.getenv("google_credentials_json")
     if credentials_json:
         credentials_dict = json.loads(credentials_json)
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        _creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+        if "client_email" not in credentials_dict:
+            print("WARNING: google_credentials_json is incomplete (missing client_email) — using CSV only.")
+        else:
+            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+            _creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
     else:
         print("WARNING: google_credentials_json not set — using CSV only.")
 except Exception as e:
