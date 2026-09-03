@@ -12,7 +12,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 CSV_HEADERS = [
     "Question", "Answer", "Session_id", "Name", "Email", "Role",
     "TabSwitches", "FaceLostCount", "FaceLostSeconds", "MultipleFacesCount", "MovementEvents",
-    "Timestamp",
+    "Timestamp", "Photo",
 ]
 
 _creds = None
@@ -62,13 +62,26 @@ def _ensure_csv_headers(csv_path):
         print(f"Archived old interview_log.csv → interview_log.csv.bak (header mismatch)")
 
 
+def _sheet_safe(value):
+    """Guard against CSV/Sheets formula injection (OWASP-documented): a cell
+    value starting with =, +, -, @, tab, or CR can be interpreted as a
+    formula by Excel/Google Sheets when the file is opened. A candidate's
+    transcribed answer is untrusted input that ends up in exactly that
+    position, so prefix it with a single quote — the same trick spreadsheet
+    apps themselves use to force literal-text interpretation.
+    """
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def add_values(new_row, username="Interview"):
     if _creds is None:
         return "Google Sheets not configured — skipped."
     try:
         sheet = _get_sheet(username)
         _ensure_sheet_headers(sheet)
-        sheet.append_row(new_row)
+        sheet.append_row([_sheet_safe(v) for v in new_row])
         return "data stored"
     except Exception as e:
         return f"Failed to Add values: {str(e)}"
@@ -86,16 +99,17 @@ def save_qa_tool(
     face_lost_seconds: int | None = None,
     multiple_faces_count: int | None = None,
     movement_events: int | None = None,
+    photo: str | None = None,
 ) -> str:
     base_dir = os.path.dirname(__file__)
     csv_path = os.path.join(base_dir, "interview_log.csv")
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    row = [
+    row = [_sheet_safe(v) for v in [
         question, answer, session_id, name, email, role,
         tab_switches or 0, face_lost_count or 0, face_lost_seconds or 0,
         multiple_faces_count or 0, movement_events or 0,
-        current_time,
-    ]
+        current_time, photo or "",
+    ]]
 
     os.makedirs(base_dir, exist_ok=True)
     _ensure_csv_headers(csv_path)

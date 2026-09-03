@@ -43,6 +43,7 @@ session_domains = {}
 session_topics_covered = {}  # NEW: Track covered topics per session
 session_question_count = {}  # NEW: Track question count
 session_difficulty = {}  # NEW: Track adaptive difficulty level (1-5) per session
+session_names = {}  # Candidate's typed name (authoritative over transcribed audio)
 
 # Session store for histories
 session_store: Dict[str, InMemoryChatMessageHistory] = {}
@@ -422,13 +423,19 @@ _DOMAIN_ALIASES = {
 def _normalize_domain(domain: str) -> str:
     return _DOMAIN_ALIASES.get(domain.lower().strip(), domain.lower().strip())
 
-def run_agent_turn(message: str, session_id: str, domain: str | None = None):
+def run_agent_turn(message: str, session_id: str, domain: str | None = None, name: str | None = None):
     # Initialize session tracking
     if session_id not in session_domains and domain:
         session_domains[session_id] = _normalize_domain(domain)
         session_topics_covered[session_id] = []
         session_question_count[session_id] = 0
         session_difficulty[session_id] = STARTING_DIFFICULTY
+
+    # The typed name is authoritative over anything the model might infer from
+    # the transcribed "introduce yourself" answer — speech-to-text frequently
+    # mangles non-English names. Store it once; later calls omit it.
+    if name and name.strip():
+        session_names[session_id] = name.strip()
 
     # Get domain for this session
     domain_text = session_domains.get(session_id, "general")
@@ -485,6 +492,16 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None):
     )
     
     system_prompt += f"\n\nSTRICT DOMAIN: {domain_text}. Ask ONLY {domain_text} questions. Ignore off-topic responses."
+
+    candidate_name = session_names.get(session_id)
+    if candidate_name:
+        system_prompt += (
+            f"\n\nCANDIDATE NAME: The candidate's name is exactly \"{candidate_name}\" (as they "
+            "typed it themselves). If you address them by name at any point, use this exact "
+            "spelling — never substitute a different name or spelling you think you heard in "
+            "their spoken introduction, since speech-to-text can mishear names, especially "
+            "non-English ones."
+        )
     
     result = safe_invoke_agent(
     {
@@ -503,9 +520,13 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None):
     quality_match = re.search(r"^\s*QUALITY:\s*(STRONG|ADEQUATE|WEAK)\s*$", response_text, re.MULTILINE | re.IGNORECASE)
     if quality_match:
         quality = quality_match.group(1).upper()
-        response_text = re.sub(r"\n?\s*QUALITY:.*$", "", response_text, flags=re.MULTILINE | re.IGNORECASE).strip()
     else:
-        quality = "ADEQUATE"  # model omitted the line — hold difficulty steady
+        quality = "ADEQUATE"  # model omitted the line, or wrote it malformed — hold difficulty steady
+    # Always strip any QUALITY:-prefixed line from the candidate view, even a
+    # malformed one with no value — at temperature 0.9 the model occasionally
+    # emits a bare "QUALITY:" and stops instead of following through with the
+    # word, which would otherwise leak into the candidate-facing text.
+    response_text = re.sub(r"\n?\s*QUALITY:.*$", "", response_text, flags=re.MULTILINE | re.IGNORECASE).strip()
 
     if quality == "STRONG":
         session_difficulty[session_id] = min(5, prior_level + 1)
@@ -519,10 +540,13 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None):
     topic_match = re.search(r"^\s*TOPIC:\s*(.+?)\s*$", response_text, re.MULTILINE | re.IGNORECASE)
     if topic_match:
         chosen_topic = topic_match.group(1).split("(")[0].strip()
-        response_text = re.sub(r"\n?\s*TOPIC:.*$", "", response_text, flags=re.MULTILINE | re.IGNORECASE).strip()
         if chosen_topic and chosen_topic not in covered:
             session_topics_covered[session_id].append(chosen_topic)
-    else:
+    # Always strip a TOPIC:-prefixed line from the candidate view, matching
+    # the same defensive handling as QUALITY: above, even if it had no usable
+    # value (falls through to the keyword heuristic below in that case).
+    response_text = re.sub(r"\n?\s*TOPIC:.*$", "", response_text, flags=re.MULTILINE | re.IGNORECASE).strip()
+    if not topic_match:
         # Fallback: keyword heuristic if the model omitted the TOPIC line
         lowered = response_text.lower()
         for topic in topics_list:

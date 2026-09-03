@@ -196,148 +196,328 @@ export default function Results({
   // returned by the backend (shown when the report is opened via session ID).
   const displayPhoto = photo || result?.photo || null;
 
+ // Brand palette — pulled straight from index.css custom properties so the
+ // PDF is the same theme as the site, not a generic jsPDF default look.
+ const PDF_COLORS = {
+   ink: [5, 5, 5] as [number, number, number],
+   surface: [23, 24, 27] as [number, number, number],
+   hairline: [45, 46, 50] as [number, number, number],
+   crimson: [177, 18, 38] as [number, number, number],
+   crimsonBright: [200, 29, 37] as [number, number, number],
+   emerald: [95, 164, 127] as [number, number, number],
+   copper: [201, 154, 114] as [number, number, number],
+   red: [217, 43, 50] as [number, number, number],
+   textHi: [245, 245, 245] as [number, number, number],
+   textMid: [179, 179, 184] as [number, number, number],
+   textLow: [124, 124, 132] as [number, number, number],
+ };
+
+ // jsPDF's built-in Helvetica only has correct glyph-width metrics for basic
+ // WinAnsi/Latin-1 characters. LLM-generated feedback routinely includes
+ // "smart" typography (non-breaking hyphens, curly quotes, em-dashes,
+ // ellipses) that this font can't measure correctly — left unsanitized, that
+ // silently corrupts splitTextToSize's line-wrap math and text overflows the
+ // page margin. Normalize to safe ASCII equivalents before anything reaches jsPDF.
+ const sanitizeForPdf = (text: string): string =>
+   text
+     // curly/smart single quotes -> straight apostrophe
+     .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+     // curly/smart double quotes -> straight quote
+     .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+     // hyphen variants, non-breaking hyphen, figure/en/em dash, horizontal bar -> "-"
+     .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015]/g, "-")
+     // ellipsis -> "..."
+     .replace(/\u2026/g, "...")
+     // non-breaking space and other Unicode space variants -> normal space
+     .replace(/[\u00A0\u2000-\u200A\u202F\u205F]/g, " ")
+     // bullet-ish glyphs that survived markdown parsing -> "-"
+     .replace(/[\u2022\u25CF\u25E6\u2023]/g, "-");
+
+ const getScoreRGB = (score: number): [number, number, number] => {
+   if (score >= 8) return PDF_COLORS.emerald;
+   if (score >= 6) return PDF_COLORS.copper;
+   return PDF_COLORS.red;
+ };
+
  const downloadPDF = () => {
   if (!result) return;
 
   const pdf = new jsPDF("p", "mm", "a4");
+  const pageWidth = 210;
   const pageHeight = 297; // A4 height in mm
-  const marginBottom = 20;
+  const marginX = 16;
+  const contentWidth = pageWidth - marginX * 2;
+  const marginBottom = 24;
   const maxY = pageHeight - marginBottom;
   let y = 20;
 
-  // Helper function to check if we need a new page
+  // Every page — including the first, which jsPDF creates implicitly — needs
+  // the dark ink background painted before anything else is drawn on it.
+  const paintPageBackground = () => {
+    pdf.setFillColor(...PDF_COLORS.ink);
+    pdf.rect(0, 0, pageWidth, pageHeight, "F");
+  };
+
+  // Translucent fills (matching the site's soft rgba tinted cards) via jsPDF's
+  // graphics-state opacity, restored immediately after each use.
+  const withOpacity = (opacity: number, draw: () => void) => {
+    pdf.saveGraphicsState();
+    // @ts-ignore — GState is attached to the jsPDF instance at runtime
+    pdf.setGState(new pdf.GState({ opacity }));
+    draw();
+    pdf.restoreGraphicsState();
+  };
+
+  const footer = () => {
+    pdf.setFont("Helvetica", "normal");
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(...PDF_COLORS.textLow);
+    pdf.text("VoxHire — Powered by The iScale", marginX, pageHeight - 12);
+    pdf.text("Developed & managed by Akshat Trivedi", pageWidth - marginX, pageHeight - 12, { align: "right" });
+  };
+
+  paintPageBackground();
+
   const checkPageBreak = (requiredSpace: number) => {
     if (y + requiredSpace > maxY) {
+      footer();
       pdf.addPage();
-      y = 20; // Reset y position for new page
+      paintPageBackground();
+      y = 20;
       return true;
     }
     return false;
   };
 
   // -------------------------------
-  // Title Banner
+  // Header — brand wordmark, matching the site's top nav
   // -------------------------------
-  pdf.setFillColor(30, 144, 255); // Blue
-  pdf.rect(0, 0, 210, 25, "F");
-
   pdf.setFont("Helvetica", "bold");
-  pdf.setFontSize(22);
-  pdf.setTextColor(255, 255, 255);
-  pdf.text("Interview Evaluation Report", 105, 16, { align: "center" });
+  pdf.setFontSize(19);
+  pdf.setTextColor(...PDF_COLORS.textHi);
+  pdf.text("VOXHIRE", marginX, y);
+
+  pdf.setFont("Helvetica", "normal");
+  pdf.setFontSize(8.5);
+  pdf.setTextColor(...PDF_COLORS.textLow);
+  pdf.text("I N T E R V I E W   E V A L U A T I O N   R E P O R T", marginX, y + 6);
 
   // Candidate verification snapshot — a framed badge in the top-right of the
-  // banner. Wrapped so a missing/invalid image never aborts the PDF; if it
+  // header. Wrapped so a missing/invalid image never aborts the PDF; if it
   // fails, the report simply generates without the photo.
   if (displayPhoto && typeof displayPhoto === "string" && displayPhoto.startsWith("data:image")) {
     try {
       const fmt = displayPhoto.includes("image/png") ? "PNG" : "JPEG";
-      // White frame behind the photo so it reads cleanly over the blue banner.
-      pdf.setFillColor(255, 255, 255);
-      pdf.roundedRect(185.5, 3, 19, 19, 1.5, 1.5, "F");
-      pdf.addImage(displayPhoto, fmt, 186, 3.5, 18, 18);
+      pdf.setFillColor(...PDF_COLORS.surface);
+      pdf.setDrawColor(...PDF_COLORS.hairline);
+      pdf.roundedRect(pageWidth - marginX - 20, 3, 20, 20, 3, 3, "FD");
+      pdf.addImage(displayPhoto, fmt, pageWidth - marginX - 19, 4, 18, 18);
     } catch (e) {
       console.warn("Skipped candidate photo in PDF:", e);
     }
   }
 
-  // Reset text color to black
-  pdf.setTextColor(0, 0, 0);
-
-  y += 20;
+  y += 14;
+  pdf.setDrawColor(...PDF_COLORS.hairline);
+  pdf.setLineWidth(0.3);
+  pdf.line(marginX, y, pageWidth - marginX, y);
+  y += 10;
 
   // -------------------------------
-  // Candidate Info Card
+  // Candidate info card
   // -------------------------------
-  const infoLines = [
-    `Candidate Name: ${displayName}`,
-    `Email: ${displayEmail}`,
-    `Position: ${displayRole}`,
-    `Score: ${result.score}/10 (${getScoreLabel(result.score)})`,
-    `Proctoring - Tab switches: ${result.tabSwitches ?? 0} | Left camera view: ${result.faceLostCount ?? 0}x (${result.faceLostSeconds ?? 0}s)`,
-    `Proctoring - Multiple faces: ${result.multipleFacesCount ?? 0}x | Sudden movement: ${result.movementEvents ?? 0}x`,
+  const infoRows: [string, string][] = [
+    ["Candidate", sanitizeForPdf(displayName)],
+    ["Email", sanitizeForPdf(displayEmail)],
+    ["Position", sanitizeForPdf(displayRole)],
   ];
-  const boxHeight = infoLines.length * 7 + 8;
-  checkPageBreak(boxHeight);
-  pdf.setFillColor(245, 245, 245);
-  pdf.roundedRect(10, y, 190, boxHeight, 3, 3, "F");
+  const cardPad = 6;
+  const rowH = 6.5;
+  const cardH = infoRows.length * rowH + cardPad * 2;
+  checkPageBreak(cardH);
 
-  pdf.setFontSize(12);
-  pdf.setFont("Helvetica", "normal");
+  pdf.setFillColor(...PDF_COLORS.surface);
+  pdf.setDrawColor(...PDF_COLORS.hairline);
+  pdf.roundedRect(marginX, y, contentWidth, cardH, 3, 3, "FD");
 
-  infoLines.forEach((line, i) => {
-    pdf.text(line, 15, y + 10 + i * 7);
+  pdf.setFontSize(10.5);
+  infoRows.forEach(([label, value], i) => {
+    const rowY = y + cardPad + 4 + i * rowH;
+    pdf.setFont("Helvetica", "normal");
+    pdf.setTextColor(...PDF_COLORS.textLow);
+    pdf.text(label, marginX + 6, rowY);
+    pdf.setFont("Helvetica", "bold");
+    pdf.setTextColor(...PDF_COLORS.textHi);
+    pdf.text(value || "—", marginX + 45, rowY);
   });
 
-  y += boxHeight + 10;
+  y += cardH + 8;
 
   // -------------------------------
-  // Section Header Function
+  // Score card
   // -------------------------------
-  const sectionHeader = (title: string) => {
-    checkPageBreak(18);
-    pdf.setDrawColor(30, 144, 255);
-    pdf.setFillColor(30, 144, 255);
-    pdf.roundedRect(10, y, 190, 10, 2, 2, "F");
+  const scoreRGB = getScoreRGB(result.score);
+  const scoreCardH = 34;
+  checkPageBreak(scoreCardH);
+
+  pdf.setFillColor(...PDF_COLORS.surface);
+  pdf.setDrawColor(...PDF_COLORS.hairline);
+  pdf.roundedRect(marginX, y, contentWidth, scoreCardH, 3, 3, "FD");
+
+  pdf.setFont("Helvetica", "normal");
+  pdf.setFontSize(8.5);
+  pdf.setTextColor(...PDF_COLORS.textLow);
+  pdf.text("OVERALL SCORE", marginX + 8, y + 10);
+
+  pdf.setFont("Helvetica", "bold");
+  pdf.setFontSize(28);
+  pdf.setTextColor(...scoreRGB);
+  pdf.text(`${result.score}`, marginX + 8, y + 24);
+  const scoreNumWidth = pdf.getTextWidth(`${result.score}`);
+  pdf.setFont("Helvetica", "normal");
+  pdf.setFontSize(11);
+  pdf.setTextColor(...PDF_COLORS.textLow);
+  pdf.text("/10", marginX + 8 + scoreNumWidth + 2, y + 24);
+
+  // Score label pill
+  const label = getScoreLabel(result.score);
+  pdf.setFont("Helvetica", "bold");
+  pdf.setFontSize(10);
+  const pillTextW = pdf.getTextWidth(label);
+  const pillW = pillTextW + 12;
+  const pillX = pageWidth - marginX - 8 - pillW;
+  const pillY = y + scoreCardH / 2 - 5;
+  withOpacity(0.14, () => {
+    pdf.setFillColor(...scoreRGB);
+    pdf.roundedRect(pillX, pillY, pillW, 10, 5, 5, "F");
+  });
+  pdf.setTextColor(...scoreRGB);
+  pdf.text(label, pillX + pillW / 2, pillY + 6.7, { align: "center" });
+
+  y += scoreCardH + 8;
+
+  // -------------------------------
+  // Proctoring flags card
+  // -------------------------------
+  const flags: [string, number, string][] = [
+    ["Tab switches", result.tabSwitches ?? 0, `${result.tabSwitches ?? 0}×`],
+    ["Left camera view", result.faceLostCount ?? 0, `${result.faceLostCount ?? 0}×${(result.faceLostSeconds ?? 0) > 0 ? ` (${result.faceLostSeconds}s)` : ""}`],
+    ["Multiple faces seen", result.multipleFacesCount ?? 0, `${result.multipleFacesCount ?? 0}×`],
+    ["Sudden movement", result.movementEvents ?? 0, `${result.movementEvents ?? 0}×`],
+  ];
+  const anyFlag = flags.some(([, count]) => count > 0);
+  const flagRowH = 6;
+  const flagCardH = flags.length * flagRowH + cardPad * 2 + 4;
+  checkPageBreak(flagCardH);
+
+  if (anyFlag) {
+    withOpacity(0.08, () => {
+      pdf.setFillColor(...PDF_COLORS.copper);
+      pdf.roundedRect(marginX, y, contentWidth, flagCardH, 3, 3, "F");
+    });
+    pdf.setDrawColor(...PDF_COLORS.copper);
+  } else {
+    pdf.setFillColor(...PDF_COLORS.surface);
+    pdf.setDrawColor(...PDF_COLORS.hairline);
+    pdf.roundedRect(marginX, y, contentWidth, flagCardH, 3, 3, "FD");
+  }
+  if (anyFlag) {
+    pdf.setLineWidth(0.3);
+    pdf.roundedRect(marginX, y, contentWidth, flagCardH, 3, 3, "D");
+  }
+
+  pdf.setFont("Helvetica", "bold");
+  pdf.setFontSize(9);
+  pdf.setTextColor(...(anyFlag ? PDF_COLORS.copper : PDF_COLORS.textHi));
+  pdf.text("PROCTORING FLAGS", marginX + 6, y + cardPad + 2);
+
+  pdf.setFontSize(9.5);
+  flags.forEach(([flabel, count, fvalue], i) => {
+    const rowY = y + cardPad + 9 + i * flagRowH;
+    pdf.setFont("Helvetica", "normal");
+    pdf.setTextColor(...(count > 0 ? PDF_COLORS.copper : PDF_COLORS.textMid));
+    pdf.text(flabel, marginX + 6, rowY);
+    pdf.setFont("Helvetica", count > 0 ? "bold" : "normal");
+    pdf.setTextColor(...(count > 0 ? PDF_COLORS.copper : PDF_COLORS.textLow));
+    pdf.text(fvalue, pageWidth - marginX - 6, rowY, { align: "right" });
+  });
+
+  y += flagCardH + 10;
+
+  // -------------------------------
+  // Section header — accent bar + tracked-caps label, not a solid banner
+  // -------------------------------
+  const sectionHeader = (title: string, rgb: [number, number, number] = PDF_COLORS.crimsonBright) => {
+    checkPageBreak(14);
+    pdf.setFillColor(...rgb);
+    pdf.roundedRect(marginX, y - 3.2, 2.4, 6, 1.2, 1.2, "F");
     pdf.setFont("Helvetica", "bold");
-    pdf.setFontSize(13);
-    pdf.setTextColor(255, 255, 255);
-    pdf.text(title, 15, y + 7);
-    pdf.setTextColor(0, 0, 0);
-
-    y += 18;
+    pdf.setFontSize(12.5);
+    pdf.setTextColor(...PDF_COLORS.textHi);
+    pdf.text(title, marginX + 6, y);
+    y += 10;
   };
 
   // -------------------------------
-  // Feedback Section
+  // Feedback section
   // -------------------------------
   sectionHeader("Overall Feedback");
 
-  pdf.setFontSize(11);
-
-  const styledLines = markdownToStyledLines(result.feedback);
+  const styledLines = markdownToStyledLines(sanitizeForPdf(result.feedback));
 
   styledLines.forEach((lineObj) => {
     const { text, bold } = lineObj;
 
     pdf.setFont("Helvetica", bold ? "bold" : "normal");
+    pdf.setFontSize(bold ? 11.5 : 10.5);
+    pdf.setTextColor(...(bold ? PDF_COLORS.textHi : PDF_COLORS.textMid));
 
-    const wrapped = pdf.splitTextToSize(text, 180);
-    const lineHeight = wrapped.length * 6 + (bold ? 4 : 2);
-    
+    const wrapped = pdf.splitTextToSize(text, contentWidth - 4);
+    const lineHeight = wrapped.length * 5.6 + (bold ? 4 : 2);
+
     checkPageBreak(lineHeight);
-    pdf.text(wrapped, 15, y);
+    pdf.text(wrapped, marginX + 2, y);
     y += lineHeight;
   });
 
+  y += 4;
 
   // -------------------------------
-  // Areas for Improvement
+  // Areas for Improvement — copper-accented cards, matching the site
   // -------------------------------
   if (result.areasForImprovement.length > 0) {
-    sectionHeader("Areas For Improvement");
+    sectionHeader("Areas For Improvement", PDF_COLORS.copper);
 
-    result.areasForImprovement.forEach((area: string, i: number) => {
-      const text = markdownToPlainText(`• ${area}`);
-      const lines = pdf.splitTextToSize(text, 180);
-      const lineHeight = lines.length * 6 + 4;
-      
-      checkPageBreak(lineHeight);
-      pdf.text(lines, 15, y);
-      y += lineHeight;
+    result.areasForImprovement.forEach((area: string) => {
+      const text = markdownToPlainText(sanitizeForPdf(area));
+      pdf.setFont("Helvetica", "normal");
+      pdf.setFontSize(10);
+      const lines = pdf.splitTextToSize(text, contentWidth - 14);
+      const rowH2 = lines.length * 5.2 + 8;
+
+      checkPageBreak(rowH2);
+      withOpacity(0.06, () => {
+        pdf.setFillColor(...PDF_COLORS.copper);
+        pdf.roundedRect(marginX, y - 4, contentWidth, rowH2, 2, 2, "F");
+      });
+      pdf.setFillColor(...PDF_COLORS.copper);
+      pdf.rect(marginX, y - 4, 1, rowH2, "F");
+      pdf.setTextColor(...PDF_COLORS.copper);
+      pdf.text(lines, marginX + 6, y);
+      y += rowH2 + 3;
     });
   }
 
   // -------------------------------
-  // Footer on last page
+  // Footer on every page
   // -------------------------------
   const totalPages = pdf.internal.pages.length - 1;
   for (let i = 1; i <= totalPages; i++) {
     pdf.setPage(i);
-    pdf.setFontSize(10);
-    pdf.setTextColor(120, 120, 120);
-    pdf.text("Generated by AI Interview System", 105, 290, { align: "center" });
-    pdf.text(`Page ${i} of ${totalPages}`, 105, 285, { align: "center" });
+    footer();
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(...PDF_COLORS.textLow);
+    pdf.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 12, { align: "center" });
   }
 
   pdf.save(`Interview_Report_${displayName}.pdf`);

@@ -984,7 +984,8 @@ function InterviewPage({
         body: JSON.stringify({
           session_id: sessionId,
           message: transcript,
-          domain: role 
+          domain: role,
+          name,
         })
       });
 

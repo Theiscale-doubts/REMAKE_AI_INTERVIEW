@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Header
+from fastapi import FastAPI, HTTPException, UploadFile, File, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from tools import extract_values
@@ -163,10 +163,44 @@ def _valid_admin_token(token: str) -> bool:
         return False
     return True
 
+
+# ── Simple in-memory rate limiting ────────────────────────────────────────
+# Fixed per-IP sliding-window counters, held in memory (same tradeoff as the
+# admin-token store above: not distributed, resets on restart — fine for
+# abuse/brute-force deterrence on a single instance rather than a hard
+# security boundary).
+_rate_buckets: dict[str, list[float]] = {}
+_rate_lock = threading.Lock()
+
+def _client_ip(request: Request) -> str:
+    # Render (and most PaaS) sit behind a proxy — the real client IP is the
+    # first hop in X-Forwarded-For, not request.client.host (that's the proxy).
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+def _rate_limited(key: str, limit: int, window_seconds: int) -> bool:
+    """True if `key` has already hit `limit` calls within the trailing window."""
+    now = time.time()
+    with _rate_lock:
+        hits = _rate_buckets.setdefault(key, [])
+        cutoff = now - window_seconds
+        while hits and hits[0] < cutoff:
+            hits.pop(0)
+        if len(hits) >= limit:
+            return True
+        hits.append(now)
+        return False
+
 class ChatRequest(BaseModel):
     session_id: str
     message: str
     domain: str | None = None
+    # The name as typed on the setup form — authoritative over whatever name
+    # the model might infer from the transcribed "introduce yourself" answer,
+    # since speech-to-text frequently mangles non-English (e.g. Hindi) names.
+    name: str | None = None
 
 class InterviewResult(BaseModel):
     score: float
@@ -243,8 +277,13 @@ def start_session(code: str | None = None):
 
 
 @app.post("/api/admin/verify")
-def admin_verify(request: AdminVerifyRequest):
+def admin_verify(request: AdminVerifyRequest, http_request: Request):
     """Exchange the admin password for a short-lived operator token."""
+    # 5 attempts per 15 minutes per IP — generous for a human mistyping their
+    # password, but shuts down automated brute-forcing of ADMIN_PASSWORD.
+    if _rate_limited(f"admin-verify:{_client_ip(http_request)}", limit=5, window_seconds=900):
+        raise HTTPException(status_code=429, detail="Too many attempts. Please try again later.")
+
     admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
     if not admin_password:
         raise HTTPException(status_code=503, detail="Admin access is not configured on the server.")
@@ -331,17 +370,25 @@ def delete_invite(code: str, x_admin_token: str | None = Header(default=None, al
 
 
 @app.post("/api/chat")
-def chat_endpoint(request: ChatRequest):
+def chat_endpoint(request: ChatRequest, http_request: Request):
+    # Generous cap — a full 9-question interview makes ~9 calls here, so this
+    # only bites automated abuse/cost-drain, never a real candidate.
+    if _rate_limited(f"chat:{_client_ip(http_request)}", limit=60, window_seconds=60):
+        raise HTTPException(status_code=429, detail="Too many requests. Please slow down and try again shortly.")
     try:
         print ("Received chat request:", request)
         agent_response = run_agent_turn(
     message=request.message,
     session_id=request.session_id,
-    domain=request.domain
+    domain=request.domain,
+    name=request.name,
 )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Log the real error server-side only — never echo internal exception
+        # details (stack internals, library errors) back to the client.
+        print(f"ERROR in /api/chat: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate the next question. Please try again.")
 
     return {"question": agent_response}
 
@@ -380,20 +427,28 @@ def save_endpoint(request: SaveRequest):
             request.name, request.email, request.role,
             request.tab_switches, request.face_lost_count, request.face_lost_seconds,
             request.multiple_faces_count, request.movement_events,
+            request.photo,
         )
     except Exception:
         pass
 
     return {"status": "ok"}
 
+_MAX_AUDIO_BYTES = 10 * 1024 * 1024  # 10MB — comfortably covers a 10-minute single answer at typical webm/Opus bitrates, well above realistic usage (a full 9-question interview is 10-15 min total)
+
 @app.post("/api/transcribe")
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(file: UploadFile = File(...), http_request: Request = None):
     """Transcribe audio using Groq Whisper."""
+    if _rate_limited(f"transcribe:{_client_ip(http_request)}", limit=60, window_seconds=60):
+        raise HTTPException(status_code=429, detail="Too many requests. Please slow down and try again shortly.")
+
     groq_api_key = os.getenv("GROQ_API_KEY")
     if not groq_api_key:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
     client = Groq(api_key=groq_api_key)
     audio_bytes = await file.read()
+    if len(audio_bytes) > _MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Audio file too large.")
     try:
         transcription = client.audio.transcriptions.create(
             file=(file.filename or "audio.webm", audio_bytes),
@@ -540,7 +595,8 @@ EVALUATION GUIDELINES:
         # Parse the response
         response_text = message.choices[0].message.content
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get response from Groq: {e}")
+        print(f"ERROR generating evaluation for session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate the evaluation. Please try again shortly.")
 
     
     # Extract score and feedback
