@@ -25,6 +25,8 @@ import {
 import PoweredByIScale from "@/components/PoweredByIScale";
 const API_BASE_URL = `${(import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "")}/api`;
 const TOTAL_QUESTIONS = 9;
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const FULLSCREEN_SHORTCUT = IS_MAC ? "Control + Command + F" : "F11";
 
 export default function VoxHireApp() {
   const [, setLocation] = useLocation();
@@ -155,6 +157,9 @@ function SetupPage({
       showCustomAlert("Please enter a valid email address");
       return;
     }
+    // Request fullscreen here, inside the click handler — browsers only allow
+    // requestFullscreen() in direct response to a user gesture like this one.
+    document.documentElement.requestFullscreen?.().catch(() => {});
     onStart();
   };
 
@@ -431,6 +436,7 @@ function InterviewPage({
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [tabSwitches, setTabSwitches] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => !!document.fullscreenElement);
   const [faceStatus, setFaceStatus] = useState<"loading" | "detected" | "none" | "unavailable">("loading");
   const faceDetectorRef = useRef<{ close: () => void } | null>(null);
   const [proctorStats, setProctorStats] = useState({
@@ -553,6 +559,29 @@ function InterviewPage({
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, []);
+
+  // Fullscreen-only mode: the interview is blocked (see the overlay in the
+  // render below) whenever the candidate is not in fullscreen — this fires
+  // on Esc, F11, swiping away, or the browser exiting fullscreen for any
+  // other reason.
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  const requestFullscreen = () => {
+    document.documentElement.requestFullscreen?.().catch(() => {});
+  };
+
+  // If the candidate exits fullscreen mid-answer, stop the recording rather
+  // than letting it keep running behind the blocking overlay.
+  useEffect(() => {
+    if (!isFullscreen && isRecordingRef.current) {
+      stopRecording();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFullscreen]);
 
   const roleLabel = role.charAt(0).toUpperCase() + role.slice(1).replace(/([A-Z])/g, " $1");
 
@@ -981,6 +1010,32 @@ function InterviewPage({
 
   return (
     <div className="min-h-screen bg-ink text-txt-hi font-display antialiased selection:bg-acc-cyan/40">
+      {/* Fullscreen gate — blocks the entire interview whenever the candidate
+          is not in fullscreen. Sits above everything else (z-50) so nothing
+          underneath is reachable until fullscreen is restored. */}
+      {!isFullscreen && !interviewComplete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/95 backdrop-blur-md px-6">
+          <div className="vh-card max-w-md w-full p-7 text-center">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-[rgba(177,18,38,.1)] border border-[rgba(177,18,38,.25)] flex items-center justify-center">
+              <AlertTriangle className="h-6 w-6 text-[#E05860]" />
+            </div>
+            <h2 className="text-[17px] font-bold text-txt-hi">Fullscreen required</h2>
+            <p className="mt-2 text-[13.5px] leading-relaxed text-txt-low">
+              This interview only runs in fullscreen mode to keep proctoring active. Recording is paused while you're out of fullscreen — return to continue.
+            </p>
+            <button
+              onClick={requestFullscreen}
+              className="mt-5 w-full px-5 py-3 text-[13.5px] rounded-xl font-semibold vh-btn-primary"
+            >
+              Enter Fullscreen
+            </button>
+            <p className="mt-3 text-[11.5px] text-txt-low">
+              Or press <span className="font-semibold text-txt-mid">{FULLSCREEN_SHORTCUT}</span> on your keyboard
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Proctoring monitor — fixed top-right */}
       <div className="fixed top-[84px] right-4 z-10 w-[212px] vh-card overflow-hidden">
         <div className="px-3.5 py-2.5 flex items-center justify-between border-b border-hairline bg-surface-2/70">
@@ -1173,7 +1228,7 @@ function InterviewPage({
                     <div className="mt-6 flex items-center gap-3 flex-wrap">
                       <button
                         onClick={startRecording}
-                        disabled={isRecording || submitted || isProcessing}
+                        disabled={isRecording || submitted || isProcessing || !isFullscreen}
                         className={`px-5 py-3 text-[13.5px] rounded-xl font-semibold inline-flex items-center gap-2 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
                           isRecording
                             ? "bg-[rgba(177,18,38,.08)] border border-[rgba(177,18,38,.4)] text-[#DFA2A8]"
