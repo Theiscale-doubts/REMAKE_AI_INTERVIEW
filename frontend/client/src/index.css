@@ -3,6 +3,184 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ─── VoxHire premium dark redesign tokens ──────────────────────── */
+@theme {
+  /* Layered dark surfaces */
+  --color-ink: #050505;
+  --color-bg-2: #0b0b0c;
+  --color-surface-1: #111214;
+  --color-surface-2: #17181b;
+  --color-surface-3: #1e1f23;
+  /* Hairline borders */
+  --color-hairline: rgba(255, 255, 255, 0.06);
+  --color-hairline-strong: rgba(255, 255, 255, 0.08);
+  /* Accents — crimson is the sole accent; emerald for success, copper for warning */
+  --color-acc-cyan: #b11226;
+  --color-acc-cyan-hover: #c81d25;
+  --color-acc-cyan-pressed: #d92b32;
+  --color-acc-deep: #6e0f1e;
+  --color-acc-emerald: #5fa47f;
+  --color-acc-copper: #c99a72;
+  /* Typography layers */
+  --color-txt-hi: #f5f5f5;
+  --color-txt-mid: #b3b3b8;
+  --color-txt-low: #7c7c84;
+
+  --font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+
+  --animate-float: vh-float 7s ease-in-out infinite;
+  --animate-float-slow: vh-float 11s ease-in-out infinite;
+  --animate-fade-up: vh-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pulse-rec: vh-pulse-rec 1.6s ease-in-out infinite;
+  --animate-blob: vh-blob 18s ease-in-out infinite alternate;
+  --animate-shimmer: vh-shimmer 2.2s linear infinite;
+
+  @keyframes vh-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-14px); }
+  }
+  @keyframes vh-fade-up {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes vh-pulse-rec {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.45); }
+    50% { box-shadow: 0 0 0 12px rgba(244, 63, 94, 0); }
+  }
+  @keyframes vh-blob {
+    0% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(40px, -30px) scale(1.12); }
+    100% { transform: translate(-30px, 24px) scale(0.95); }
+  }
+  @keyframes vh-shimmer {
+    from { background-position: -200% 0; }
+    to { background-position: 200% 0; }
+  }
+}
+
+/* Waveform bar animation — defined at top level (not inside @theme) so it is
+   never tree-shaken; referenced by .vh-wave-bar below. Per-bar timing is passed
+   in via the --wave-dur / --wave-delay custom properties. */
+@keyframes vh-wave {
+  from { transform: scaleY(0.35); }
+  to { transform: scaleY(1); }
+}
+
+@layer components {
+  /* Home hero waveform bar — timing supplied per-bar via CSS vars */
+  .vh-wave-bar {
+    animation: vh-wave var(--wave-dur, 2s) ease-in-out var(--wave-delay, 0s) infinite alternate;
+  }
+  /* Copper (bronze) primary button — used only on the Admin console */
+  .vh-btn-copper {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 12px;
+    font-weight: 600;
+    color: #1c140d;
+    background: linear-gradient(180deg, #d4a981 0%, #c0895d 100%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 8px 30px rgba(0, 0, 0, 0.35);
+    transition: transform 0.2s ease-out, filter 0.2s ease-out;
+  }
+  .vh-btn-copper:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.06); }
+  .vh-btn-copper:active:not(:disabled) { transform: translateY(0); filter: brightness(0.96); }
+  .vh-btn-copper:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Copper focus ring for inputs scoped to the Admin console */
+  .admin-copper .vh-input:focus {
+    border-color: #c99a72;
+    box-shadow: 0 0 0 3px rgba(201, 154, 114, 0.18);
+  }
+  /* Elevated card: layered surface + hairline + depth */
+  .vh-card {
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-hairline);
+    border-radius: 14px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 30px rgba(0, 0, 0, 0.35);
+  }
+  .vh-card-raised {
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-hairline-strong);
+    border-radius: 16px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 30px rgba(0, 0, 0, 0.35);
+  }
+  /* Primary CTA: crimson gradient, white text */
+  .vh-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 12px;
+    font-weight: 600;
+    color: #f5f5f5;
+    background: linear-gradient(180deg, #c81d25 0%, #b11226 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 8px 30px rgba(0, 0, 0, 0.35);
+    transition: transform 0.2s ease-out, box-shadow 0.2s ease-out, filter 0.2s ease-out;
+  }
+  .vh-btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    filter: brightness(1.08);
+  }
+  .vh-btn-primary:active:not(:disabled) { transform: translateY(0); filter: brightness(0.95); }
+  .vh-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Secondary / ghost button */
+  .vh-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 12px;
+    font-weight: 500;
+    color: var(--color-txt-hi);
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-hairline-strong);
+    transition: background 0.18s, border-color 0.18s, transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .vh-btn-ghost:hover:not(:disabled) { border-color: rgba(200, 29, 37, 0.5); transform: translateY(-1px); }
+  .vh-btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Inputs */
+  .vh-input {
+    width: 100%;
+    background: var(--color-bg-2);
+    border: 1px solid var(--color-hairline-strong);
+    border-radius: 10px;
+    color: var(--color-txt-hi);
+    transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out;
+  }
+  .vh-input::placeholder { color: var(--color-txt-low); }
+  .vh-input:focus {
+    outline: none;
+    border-color: #b11226;
+    box-shadow: 0 0 0 3px rgba(177, 18, 38, 0.15);
+  }
+  /* Status badge */
+  .vh-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.4375rem 1rem;
+    border: 1px solid var(--color-hairline-strong);
+    background: var(--color-surface-1);
+    color: var(--color-txt-mid);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+  /* Text shimmer for AI-thinking states */
+  .vh-shimmer-text {
+    background: linear-gradient(90deg, var(--color-txt-low) 40%, var(--color-txt-hi) 50%, var(--color-txt-low) 60%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: vh-shimmer 2.2s linear infinite;
+  }
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

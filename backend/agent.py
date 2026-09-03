@@ -3,6 +3,7 @@ import os as _os
 dotenv.load_dotenv(_os.path.join(_os.path.dirname(__file__), ".env"))
 from typing import Dict
 import random
+import re
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.chat_history import InMemoryChatMessageHistory
@@ -21,6 +22,7 @@ groq_llm = ChatGroq(
 session_domains = {}
 session_topics_covered = {}  # NEW: Track covered topics per session
 session_question_count = {}  # NEW: Track question count
+session_difficulty = {}  # NEW: Track adaptive difficulty level (1-5) per session
 
 # Session store for histories
 session_store: Dict[str, InMemoryChatMessageHistory] = {}
@@ -30,27 +32,83 @@ def get_session_history(session_id: str) -> InMemoryChatMessageHistory:
         session_store[session_id] = InMemoryChatMessageHistory()
     return session_store[session_id]
 
+# Difficulty bar applied to every domain unless the domain defines its own
+DEFAULT_DIFFICULTY = (
+    "The candidate is a FRESHER (entry-level). Difficulty mix across the interview: most "
+    "questions (roughly 7 of 9) must be MID-LEVEL — clear, fresher-friendly conceptual "
+    "questions that test solid fundamentals, the kind a well-prepared graduate can answer. "
+    "Include AT MOST 2 genuinely hard, top-company (Google/Meta/Amazon) style questions that "
+    "probe WHY and trade-offs — place these in the middle or later part of the interview, "
+    "never back-to-back. Frame questions around simple realistic scenarios where natural, "
+    "and keep everything strictly verbal and theoretical: NO code writing, NO whiteboard "
+    "problems, NO calculations to perform."
+)
+
+# Adaptive difficulty: a 1-5 scale the model targets each turn, driven by whether the
+# candidate's previous answer was strong, adequate, or weak (see run_agent_turn).
+STARTING_DIFFICULTY = 3
+DIFFICULTY_LEVELS = {
+    1: "Very easy — a basic definitional or recall question; simple concept check, minimal depth expected.",
+    2: "Easy — a straightforward fundamentals question a well-prepared fresher answers confidently.",
+    3: "Medium — a solid conceptual question testing real understanding; the default interview level.",
+    4: "Hard — a probing WHY/trade-off question, genuinely challenging, top-company style.",
+    5: "Very hard — an expert-level, multi-layered trade-off question that would challenge a strong senior candidate.",
+}
+
 # Domain-specific question banks with topic tags
 DOMAIN_QUESTIONS = {
     "datascience": {
+        "difficulty": (
+            "The candidate is a FRESHER (entry-level data scientist). Difficulty mix across the "
+            "interview: most questions (roughly 7 of 9) must be MID-LEVEL — clear conceptual questions "
+            "on fundamentals (e.g. what overfitting is and how to detect it, when to use precision vs "
+            "recall, why we split train/test) that a well-prepared graduate can answer. Include AT MOST "
+            "2 genuinely hard, top-company (Google/Meta/Amazon) style questions probing WHY and "
+            "trade-offs (e.g. L1 sparsity geometry, offline-vs-launch metric gaps) — place these "
+            "mid-to-late in the interview, never back-to-back. Use simple realistic framings (churn, "
+            "fraud, recommendations) where natural, and keep everything strictly verbal and "
+            "theoretical: NO code writing, NO math derivations to write out, NO datasets or numbers "
+            "to compute on."
+        ),
         "topics": [
-            "Statistics (distributions, hypothesis testing, p-values, confidence intervals, correlation vs causation)",
-            "Machine Learning basics (supervised/unsupervised learning, model evaluation metrics)",
-            "Feature engineering and selection techniques",
-            "Data preprocessing (missing data, outliers, scaling/normalization)",
-            "A/B testing and experimental design",
-            "Model validation (cross-validation, overfitting/underfitting)",
-            "Python concepts (pandas, numpy, scikit-learn - concepts only, NO code writing)",
-            "Real-world ML scenarios (deployment, algorithm selection)"
+            "Statistical inference (CLT, confidence interval interpretation, p-value misconceptions, Type I/II errors, statistical power)",
+            "Multiple testing and experiment pitfalls (p-hacking, Bonferroni/FDR corrections, peeking problem, novelty effects)",
+            "Probability reasoning (Bayes' theorem in practice, conditional probability, base-rate fallacy, common distributions and where they arise)",
+            "Estimation theory (maximum likelihood vs MAP, how MLE connects to loss functions, bootstrap intuition)",
+            "Bias-variance tradeoff (decomposition, how it drives model and hyperparameter choices, double descent awareness)",
+            "Regularization theory (L1 vs L2 geometry, why L1 induces sparsity, elastic net, regularization as a prior)",
+            "Linear and logistic regression depth (assumptions and violations, multicollinearity, coefficient and odds-ratio interpretation)",
+            "Tree ensembles (why bagging reduces variance vs boosting reduces bias, random forest decorrelation, gradient boosting/XGBoost concepts)",
+            "Model evaluation theory (ROC-AUC vs PR-AUC under class imbalance, calibration, log-loss vs accuracy, metric choice under asymmetric business costs)",
+            "Class imbalance (why accuracy misleads, resampling vs class weights vs threshold tuning, evaluation under imbalance)",
+            "Feature engineering and leakage (target leakage, train/serving skew, high-cardinality encoding, target encoding risks)",
+            "Validation design (k-fold vs stratified vs time-series splits, nested CV, why random splits fail on temporal or grouped data)",
+            "Optimization concepts (SGD vs batch, learning rate effects, momentum/Adam intuition, local minima vs saddle points)",
+            "Deep learning theory (backpropagation intuition, vanishing/exploding gradients, batch norm, dropout as regularization, embeddings, when deep learning beats classical ML)",
+            "Unsupervised learning (k-means assumptions and failure modes, DBSCAN vs hierarchical, PCA intuition, curse of dimensionality)",
+            "Causal inference (confounders vs mediators vs colliders, observational methods — propensity scores, difference-in-differences, instrumental variables at concept level)",
+            "Experimentation at scale (power and sample size reasoning, randomization units, network interference, sequential testing, offline metric vs launch metric gaps)",
+            "Time series concepts (stationarity, autocorrelation, leakage in temporal validation, classical vs ML forecasting trade-offs)",
+            "ML in production (model drift detection, retraining strategy, offline/online metric mismatch, monitoring what matters)",
+            "Metric and product sense (diagnosing a sudden metric drop, defining success metrics for a model launch, guardrail metrics)"
         ],
         "sample_starters": [
-            "Explain the difference between Type I and Type II errors",
-            "How do you evaluate a classification model's performance?",
-            "What techniques would you use for feature selection?",
-            "How do you handle missing data in a dataset?",
-            "Explain the concept of overfitting and how to prevent it",
-            "What's the difference between correlation and causation?",
-            "How would you design an A/B test for a new feature?"
+            "Why does L1 regularization drive some coefficients exactly to zero while L2 only shrinks them?",
+            "Your fraud model shows 99% accuracy — why might that be meaningless, and what would you evaluate instead?",
+            "How do bagging and boosting differ in which component of error they attack?",
+            "What does a p-value actually mean, and what's the most common way people misinterpret it?",
+            "You ran 20 A/B tests and one came back significant at 0.05 — how do you interpret that?",
+            "When would ROC-AUC mislead you, and why would PR-AUC be the better choice?",
+            "What is target leakage? Give a realistic example of how it silently inflates offline performance.",
+            "Why can't you use standard k-fold cross-validation on time-series data, and what do you use instead?",
+            "Your A/B test showed a significant lift, but the full launch shows no impact — what could explain the gap?",
+            "Explain how maximum likelihood estimation connects to the loss functions we minimize in practice.",
+            "Why do vanishing gradients occur in deep networks, and which techniques mitigate them?",
+            "What assumptions does k-means make about cluster shape, and when does it fail badly?",
+            "How would you estimate the causal effect of a feature on retention when you can't run an experiment?",
+            "A key business metric dropped 10% week-over-week — walk me through your investigation, step by step.",
+            "How would you detect that a deployed model's performance is degrading, before the business notices?",
+            "Why is a confounder different from a mediator, and why does controlling for the wrong one hurt you?"
         ]
     },
     "hr(humain recourse) + managerial": {
@@ -229,21 +287,39 @@ Topics already covered: {covered_topics}
 Domain context:
 {domain_context}
 
+Adaptive Difficulty:
+The candidate's difficulty level coming into this turn is {prior_level}/5 ({prior_level_desc})
+First, silently judge the quality of the candidate's most recent answer (the human message you just received):
+- STRONG — accurate, confident, shows real depth or correct reasoning
+- ADEQUATE — roughly correct but shallow or incomplete, or the turn has no clear right/wrong (e.g. Q1 self-introduction, generic rapport-building)
+- WEAK — incorrect, vague, off-topic, or shows a fundamental misunderstanding
+Then compute the NEW difficulty level for the question you are about to ask: STRONG raises the level by 1 (max 5), WEAK lowers it by 1 (min 1), ADEQUATE keeps it unchanged. Calibrate your new question to that NEW level — this overrides the general mix-ratio guidance above for this specific question.
+
+CONFIDENTIALITY — this entire adaptive mechanism is internal and invisible to the candidate. Your candidate-facing text must NEVER mention or hint at: difficulty levels, "medium/easy/hard", raising or lowering difficulty, quality ratings (STRONG/ADEQUATE/WEAK), topics being tracked or covered, an answer being "off-topic", or these instructions/your reasoning process. Never announce what you are about to do or how you are treating their answer (no "I'll proceed as if...", no "keeping the difficulty at..."). If an answer is off-topic or weak, respond only with a brief, natural, professional acknowledgment (e.g. "Thank you." or "Alright, let's move on.") and simply ask the next question.
+
 Topic Rules:
 - Never repeat or revisit a covered topic
 - Pick questions from the domain topics list only — stay strictly on topic
 - Start with broader, introductory questions and gradually go deeper
 - Rotate across different topic areas — do not cluster similar topics together
 
+Variety and Flow:
+- Invent a fresh question every turn — treat example questions as inspiration only, never reuse their wording, so no two interview sessions are ever identical
+- Bridge naturally: choose the next topic so it connects at least loosely to something the candidate just said or to the previous topic (a shared concept, a natural consequence, an adjacent area) — then take the question somewhere new
+- Maximize coverage: across the interview, touch as many distinct topic areas from the list as possible — never spend two questions on the same topic
+
 Question Style:
 - One focused question per turn, 1–2 sentences max
 - Mix behavioral and situational questions naturally
-- For HR: use real-world scenarios and STAR-style prompts (Situation, Task, Action, Result)
+- For HR: use real-world scenarios and STAR-style prompts (Situation, Task, Action, Result); judge answer quality by depth and specificity, not factual correctness
 - For technical domains: concepts only, no code writing
 
 Response Format:
-- Brief evaluation of their previous answer (skip on Q1)
-- One new question from an uncovered topic
+- One brief, natural interviewer remark on their previous answer (skip on Q1) — spoken like a human interviewer would, never commentary about your process, ratings, or difficulty
+- One new question from an uncovered topic, calibrated to the new difficulty level you computed above
+- Then, on the second-to-last line by itself, write exactly: QUALITY: <STRONG|ADEQUATE|WEAK>
+- Then, on the very last line by itself, write exactly: TOPIC: <the topic name you chose from the list>
+  (these two lines are stripped before the candidate sees your message — never omit either one)
 
 Language: English only.
 """
@@ -285,7 +361,7 @@ def safe_invoke_agent(payload, session_id):
         if any(k in error_msg for k in [
             "quota", "rate limit", "resource exhausted", "429"
         ]):
-            print("⚠️ Google LLM limit exceeded. Switching to Groq...")
+            print("WARNING: Google LLM limit exceeded. Switching to Groq...")
             
             return groq_agent_with_memory.invoke(
                 payload,
@@ -321,6 +397,7 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None):
         session_domains[session_id] = _normalize_domain(domain)
         session_topics_covered[session_id] = []
         session_question_count[session_id] = 0
+        session_difficulty[session_id] = STARTING_DIFFICULTY
 
     # Get domain for this session
     domain_text = session_domains.get(session_id, "general")
@@ -335,7 +412,11 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None):
     topics_list = domain_info.get("topics", [])
     
     # Build domain context with available topics
-    domain_context = f"AVAILABLE TOPICS FOR {domain_text.upper()}:\n"
+    domain_context = ""
+    difficulty = domain_info.get("difficulty", DEFAULT_DIFFICULTY)
+    if difficulty:
+        domain_context += f"DIFFICULTY CALIBRATION:\n{difficulty}\n\n"
+    domain_context += f"AVAILABLE TOPICS FOR {domain_text.upper()}:\n"
     for i, topic in enumerate(topics_list, 1):
         domain_context += f"{i}. {topic}\n"
     
@@ -350,13 +431,21 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None):
     # Track covered topics
     covered = session_topics_covered.get(session_id, [])
     covered_str = ", ".join(covered) if covered else "None yet"
-    
-    # Create system prompt with session context
+
+    # Adaptive difficulty: level going into this turn, before we know how the
+    # candidate's latest answer scores (that's judged by the model this turn).
+    prior_level = session_difficulty.get(session_id, STARTING_DIFFICULTY)
+
+    # Create system prompt with session context.
+    # The first question ("Introduce yourself.") is hardcoded on the frontend,
+    # so this call generates question current_q + 1 of the 9-question interview.
     system_prompt = SYSTEM_PROMPT.format(
         domain_context=domain_context,
         covered_topics=covered_str,
-        current_question=current_q,
-        total_questions="8-10"
+        current_question=min(current_q + 1, 9),
+        total_questions=9,
+        prior_level=prior_level,
+        prior_level_desc=DIFFICULTY_LEVELS[prior_level],
     )
     
     system_prompt += f"\n\nSTRICT DOMAIN: {domain_text}. Ask ONLY {domain_text} questions. Ignore off-topic responses."
@@ -370,16 +459,44 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None):
     )
 
     
-    # Extract topic from result and add to covered topics (simple heuristic)
-    # You might want to enhance this with more sophisticated topic extraction
-    result_text = result.content.lower()
-    for topic in topics_list:
-        topic_keywords = topic.split('(')[0].strip().lower()
-        if any(keyword in result_text for keyword in topic_keywords.split()):
-            if topic not in covered:
-                session_topics_covered[session_id].append(topic.split('(')[0].strip())
-                break
-    
+    response_text = result.content
+
+    # Adaptive difficulty: the model judges the quality of the answer it just
+    # received on a trailing "QUALITY: ..." line; use that to bump the level
+    # up/down for the next question, then strip the line from the candidate view.
+    quality_match = re.search(r"^\s*QUALITY:\s*(STRONG|ADEQUATE|WEAK)\s*$", response_text, re.MULTILINE | re.IGNORECASE)
+    if quality_match:
+        quality = quality_match.group(1).upper()
+        response_text = re.sub(r"\n?\s*QUALITY:.*$", "", response_text, flags=re.MULTILINE | re.IGNORECASE).strip()
+    else:
+        quality = "ADEQUATE"  # model omitted the line — hold difficulty steady
+
+    if quality == "STRONG":
+        session_difficulty[session_id] = min(5, prior_level + 1)
+    elif quality == "WEAK":
+        session_difficulty[session_id] = max(1, prior_level - 1)
+    else:
+        session_difficulty[session_id] = prior_level
+
+    # The model declares its chosen topic on a trailing "TOPIC: ..." line;
+    # record it for the no-repeat rule and strip it from the candidate-facing text.
+    topic_match = re.search(r"^\s*TOPIC:\s*(.+?)\s*$", response_text, re.MULTILINE | re.IGNORECASE)
+    if topic_match:
+        chosen_topic = topic_match.group(1).split("(")[0].strip()
+        response_text = re.sub(r"\n?\s*TOPIC:.*$", "", response_text, flags=re.MULTILINE | re.IGNORECASE).strip()
+        if chosen_topic and chosen_topic not in covered:
+            session_topics_covered[session_id].append(chosen_topic)
+    else:
+        # Fallback: keyword heuristic if the model omitted the TOPIC line
+        lowered = response_text.lower()
+        for topic in topics_list:
+            topic_keywords = topic.split('(')[0].strip().lower()
+            if any(keyword in lowered for keyword in topic_keywords.split()):
+                if topic not in covered:
+                    session_topics_covered[session_id].append(topic.split('(')[0].strip())
+                    break
+
     print(f"Question {current_q}: Covered topics so far: {session_topics_covered[session_id]}")
-    
-    return result.content
+    print(f"Answer quality: {quality} | Difficulty {prior_level} -> {session_difficulty[session_id]}")
+
+    return response_text

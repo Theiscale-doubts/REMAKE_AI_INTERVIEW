@@ -9,7 +9,11 @@ import json
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-CSV_HEADERS = ["Question", "Answer", "Session_id", "Name", "Email", "Role", "Timestamp"]
+CSV_HEADERS = [
+    "Question", "Answer", "Session_id", "Name", "Email", "Role",
+    "TabSwitches", "FaceLostCount", "FaceLostSeconds", "MultipleFacesCount", "MovementEvents",
+    "Timestamp",
+]
 
 _creds = None
 try:
@@ -74,11 +78,21 @@ def save_qa_tool(
     name: str | None = None,
     email: str | None = None,
     role: str | None = None,
+    tab_switches: int | None = None,
+    face_lost_count: int | None = None,
+    face_lost_seconds: int | None = None,
+    multiple_faces_count: int | None = None,
+    movement_events: int | None = None,
 ) -> str:
     base_dir = os.path.dirname(__file__)
     csv_path = os.path.join(base_dir, "interview_log.csv")
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    row = [question, answer, session_id, name, email, role, current_time]
+    row = [
+        question, answer, session_id, name, email, role,
+        tab_switches or 0, face_lost_count or 0, face_lost_seconds or 0,
+        multiple_faces_count or 0, movement_events or 0,
+        current_time,
+    ]
 
     os.makedirs(base_dir, exist_ok=True)
     _ensure_csv_headers(csv_path)

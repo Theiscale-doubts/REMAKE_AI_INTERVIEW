@@ -3,18 +3,53 @@
 
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https:; media-src 'self' blob:;" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: http://localhost:* http://127.0.0.1:*; media-src 'self' blob:;" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-    <link rel="icon" type="image/png" href="%VITE_APP_LOGO%" />
-    <link rel="apple-touch-icon" href="%VITE_APP_LOGO%" />
+    <link rel="icon" id="vh-favicon" type="image/svg+xml" />
+    <link rel="apple-touch-icon" id="vh-favicon-apple" />
     <title>VOXHIRE</title>
-    <!-- Add Google Fonts here, example:
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    -->
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      // Premium animated favicon: a crimson voice-equalizer in a rounded dark
+      // tile. Browsers don't animate SVG favicons, so we swap frames on a timer.
+      (function () {
+        var xs = [6.5, 12.5, 18.5, 24.5];
+        var frames = [
+          [0.35, 0.95, 0.55, 0.75],
+          [0.85, 0.45, 1.0, 0.6],
+          [0.5, 0.8, 0.4, 0.95],
+          [0.95, 0.55, 0.75, 0.4]
+        ];
+        function svg(hs) {
+          var bars = xs.map(function (x, i) {
+            var h = 7 + hs[i] * 15;         // 7..22 px tall
+            var y = (16 - h / 2).toFixed(1); // vertically centered
+            return '<rect x="' + x + '" y="' + y + '" width="3" height="' + h.toFixed(1) + '" rx="1.5" fill="url(#g)"/>';
+          }).join('');
+          return 'data:image/svg+xml,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+            '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">' +
+            '<stop offset="0" stop-color="#D92B32"/><stop offset="1" stop-color="#B11226"/></linearGradient></defs>' +
+            '<rect width="32" height="32" rx="8" fill="#111214"/>' +
+            '<rect x="0.5" y="0.5" width="31" height="31" rx="7.5" fill="none" stroke="rgba(255,255,255,0.09)"/>' +
+            bars + '</svg>'
+          );
+        }
+        var icon = document.getElementById('vh-favicon');
+        var apple = document.getElementById('vh-favicon-apple');
+        apple.setAttribute('href', svg(frames[1])); // static frame for iOS
+        var i = 0;
+        (function tick() {
+          icon.setAttribute('href', svg(frames[i % frames.length]));
+          i++;
+          setTimeout(tick, 420);
+        })();
+      })();
+    </script>
   </head>
 
   <body>
