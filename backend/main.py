@@ -390,7 +390,7 @@ def chat_endpoint(request: ChatRequest, http_request: Request):
         print(f"ERROR in /api/chat: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate the next question. Please try again.")
 
-    return {"question": agent_response}
+    return agent_response
 
 
 @app.post("/api/save")
@@ -524,8 +524,28 @@ async def get_interview_results(session_id: str) -> InterviewResult:
     for idx, qa in enumerate(log, 1):
         transcript += f"\nQ{idx}: {qa.get('Question', 'N/A')}\n"
         transcript += f"A{idx}: {qa.get('Answer', 'N/A')}\n"
-    
+
+    # The interview extends past the 9-question minimum only when the
+    # candidate is already performing well (see agent.py's adaptive-length
+    # logic) — reaching that extended stage is itself a signal of sustained
+    # strength, so responses from question 13 onward get graded on a
+    # slightly gentler curve. Only added to the prompt when it actually
+    # applies, so a normal 9-question interview costs no extra tokens here.
+    extension_note = ""
+    if len(log) > 12:
+        extension_note = (
+            f"\nEXTENDED INTERVIEW NOTE: this interview ran to {len(log)} questions "
+            "(beyond the normal 9), which only happens when the candidate was already "
+            "performing well through question 12 — reaching this stage is itself a "
+            "positive signal. For responses from question 13 onward specifically: score "
+            "slightly more generously than the strict scale below would otherwise imply — "
+            "roughly +0.2 for genuinely strong answers in that range, and about 0.2 less "
+            "harsh for weaker ones there. Questions 1-12 are still graded on the normal "
+            "strict scale with no adjustment.\n"
+        )
+
     prompt = f"""You are an expert technical interviewer evaluating a candidate's interview performance.
+{extension_note}
 
 {transcript}
 

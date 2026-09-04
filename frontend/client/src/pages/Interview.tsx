@@ -24,7 +24,11 @@ import {
 } from "lucide-react";
 import PoweredByIScale from "@/components/PoweredByIScale";
 const API_BASE_URL = `${(import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "")}/api`;
-const TOTAL_QUESTIONS = 9;
+// Matches backend/agent.py's MIN_QUESTIONS/MAX_QUESTIONS — the actual
+// per-session total is decided server-side and reported on every /api/chat
+// response; these two are only used for display before that's known yet.
+const MIN_QUESTIONS = 9;
+const MAX_QUESTIONS = 15;
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const FULLSCREEN_SHORTCUT = IS_MAC ? "Control + Command + F" : "F11";
 
@@ -326,7 +330,7 @@ function SetupPage({
               <h2 className="text-[17px] tracking-[-0.01em] font-semibold mb-5">What to expect</h2>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { icon: ListChecks, label: "Questions", value: `${TOTAL_QUESTIONS} adaptive` },
+                  { icon: ListChecks, label: "Questions", value: `${MIN_QUESTIONS}-${MAX_QUESTIONS} adaptive` },
                   { icon: Clock, label: "Duration", value: "≈ 15–20 min" },
                   { icon: Volume2, label: "AI interviewer", value: "Speaks aloud" },
                   { icon: Mic, label: "Your answers", value: "Voice, transcribed" },
@@ -417,6 +421,10 @@ function InterviewPage({
   const [submitted, setSubmitted] = useState(false);
   const [interviewComplete, setInterviewComplete] = useState(false);
   const [questionCount, setQuestionCount] = useState(0);
+  // Starts at the guaranteed minimum; the backend can raise this (up to a
+  // hard cap) after each answer if the interview is going well, and reports
+  // the current decided value on every /api/chat response.
+  const [totalQuestions, setTotalQuestions] = useState(9);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -968,8 +976,10 @@ function InterviewPage({
       const newQuestionCount = questionCount + 1;
       setQuestionCount(newQuestionCount);
 
-      // Check if this was the last question
-      if (newQuestionCount >= TOTAL_QUESTIONS) {
+      // Check if this was the last question (against the most recently
+      // decided total — the backend may have already extended it based on
+      // how earlier answers went, or may extend it further in this call).
+      if (newQuestionCount >= totalQuestions) {
         setInterviewComplete(true);
         setStatusText("Interview complete!");
         setIsProcessing(false); // Stop processing
@@ -991,6 +1001,9 @@ function InterviewPage({
 
       const data = await response.json();
 
+      if (typeof data.total_questions === "number") {
+        setTotalQuestions(data.total_questions);
+      }
       setCurrentQuestion(data.question);
       setTranscript("");
       setTotalSeconds(0);
@@ -1120,7 +1133,7 @@ function InterviewPage({
             <div
               className="h-full transition-all duration-700 ease-out"
               style={{
-                width: `${((questionCount + 1) / TOTAL_QUESTIONS) * 100}%`,
+                width: `${((questionCount + 1) / totalQuestions) * 100}%`,
                 background: "linear-gradient(90deg,#6E0F1E,#B11226)",
               }}
             />
@@ -1143,7 +1156,7 @@ function InterviewPage({
                   <div className="px-8 pt-8 pb-7">
                     <div className="flex items-center gap-3 mb-5">
                       <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(177,18,38,.4)] bg-[rgba(177,18,38,.08)] px-3.5 py-1.5 text-[11.5px] font-semibold text-[#E05860] tabular-nums tracking-[0.04em]">
-                        QUESTION {questionCount + 1} OF {TOTAL_QUESTIONS}
+                        QUESTION {questionCount + 1} OF {totalQuestions}
                       </span>
                       <span className="text-xs text-txt-low">Voice answer</span>
                     </div>

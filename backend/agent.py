@@ -44,6 +44,41 @@ session_topics_covered = {}  # NEW: Track covered topics per session
 session_question_count = {}  # NEW: Track question count
 session_difficulty = {}  # NEW: Track adaptive difficulty level (1-5) per session
 session_names = {}  # Candidate's typed name (authoritative over transcribed audio)
+session_total_questions = {}  # Decided interview length per session (see run_agent_turn)
+session_last_quality = {}  # Most recent STRONG/ADEQUATE/WEAK judgment per session
+
+# Adaptive interview length: every interview is at least MIN_QUESTIONS long.
+# Past that, the interview extends one question at a time, capped at
+# MAX_QUESTIONS, for as long as the candidate isn't visibly struggling.
+# Gating this on the numeric difficulty level reaching 4 (which requires an
+# actual STRONG rating) turned out too strict in practice — models are
+# conservative about handing out STRONG even for genuinely strong answers, so
+# that bar was rarely met and the feature almost never fired. Using "the most
+# recent judgment wasn't WEAK" instead is a more robust, more achievable
+# reading of "going well": a WEAK answer stops further extension immediately,
+# but steady ADEQUATE-or-better performance keeps it going.
+MIN_QUESTIONS = 9
+MAX_QUESTIONS = 15
+
+# The QUALITY self-judgment turned out unreliable on its own too — testing
+# showed the model defaults to ADEQUATE even for bare "I don't know"/"skip"
+# non-answers, so extension would trigger for a struggling candidate just as
+# readily as a strong one. This deterministic, zero-token check catches the
+# obvious non-answer case directly from the raw message instead of trusting
+# the model's self-report for it — same phrases the evaluation prompt already
+# treats as disengagement (see the SKIPPED/REFUSED guideline in main.py).
+_NON_ANSWER_PHRASES = {
+    "i don't know", "i dont know", "not sure", "skip", "skip this",
+    "skip this question", "pass", "no idea", "i have no idea",
+    "not familiar", "i don't know how to answer", "i dont know how to answer",
+    "haven't learned that", "i haven't learned that", "i don't know that",
+}
+
+def _looks_like_non_answer(message: str) -> bool:
+    cleaned = message.strip().lower().rstrip(".!? ")
+    if len(cleaned) < 12:
+        return True
+    return any(phrase in cleaned for phrase in _NON_ANSWER_PHRASES)
 
 # Session store for histories
 session_store: Dict[str, InMemoryChatMessageHistory] = {}
@@ -454,9 +489,20 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
     # told never to revisit them anyway)
     covered = session_topics_covered.get(session_id, [])
     covered_str = ", ".join(covered) if covered else "None yet"
-    topics_list = [t for t in all_topics if t.split("(")[0].strip() not in covered]
+    uncovered_topics = [t for t in all_topics if t.split("(")[0].strip() not in covered]
 
-    # Build domain context with available (uncovered) topics only
+    # Show only a random slice of the uncovered topics each turn, not the
+    # whole list. Two effects, both wanted: (1) a big domain like data
+    # analytics has 20+ topics, and models tend to gravitate to the same
+    # "safe" ones (A/B testing, SQL joins...) turn after turn, session after
+    # session, when shown the full list every time — a shuffled subset breaks
+    # that bias and spreads real coverage across the field. (2) it's strictly
+    # fewer tokens than listing everything, so this is a variety win and a
+    # cost win at the same time, not a tradeoff between them.
+    TOPIC_SAMPLE_SIZE = 8
+    topics_list = random.sample(uncovered_topics, min(TOPIC_SAMPLE_SIZE, len(uncovered_topics)))
+
+    # Build domain context with the sampled topics only
     domain_context = ""
     difficulty = domain_info.get("difficulty", DEFAULT_DIFFICULTY)
     if difficulty:
@@ -479,14 +525,26 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
     # candidate's latest answer scores (that's judged by the model this turn).
     prior_level = session_difficulty.get(session_id, STARTING_DIFFICULTY)
 
+    # Adaptive interview length: re-evaluated every turn once we're approaching
+    # the current decided total. Combines the most recently LLM-judged quality
+    # (from the answer already judged, so this is always based on real,
+    # settled performance — never this turn's not-yet-existent answer) with a
+    # deterministic check on the raw message just submitted, since the model's
+    # self-judgment alone proved unreliable (see _looks_like_non_answer above).
+    decided_total = session_total_questions.get(session_id, MIN_QUESTIONS)
+    if current_q + 1 >= decided_total and decided_total < MAX_QUESTIONS:
+        if session_last_quality.get(session_id) != "WEAK" and not _looks_like_non_answer(message):
+            decided_total = min(MAX_QUESTIONS, decided_total + 1)
+    session_total_questions[session_id] = decided_total
+
     # Create system prompt with session context.
     # The first question ("Introduce yourself.") is hardcoded on the frontend,
-    # so this call generates question current_q + 1 of the 9-question interview.
+    # so this call generates question current_q + 1 of the interview.
     system_prompt = SYSTEM_PROMPT.format(
         domain_context=domain_context,
         covered_topics=covered_str,
-        current_question=min(current_q + 1, 9),
-        total_questions=9,
+        current_question=min(current_q + 1, decided_total),
+        total_questions=decided_total,
         prior_level=prior_level,
         prior_level_desc=DIFFICULTY_LEVELS[prior_level],
     )
@@ -528,6 +586,8 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
     # word, which would otherwise leak into the candidate-facing text.
     response_text = re.sub(r"\n?\s*QUALITY:.*$", "", response_text, flags=re.MULTILINE | re.IGNORECASE).strip()
 
+    session_last_quality[session_id] = quality
+
     if quality == "STRONG":
         session_difficulty[session_id] = min(5, prior_level + 1)
     elif quality == "WEAK":
@@ -558,5 +618,10 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
 
     print(f"Question {current_q}: Covered topics so far: {session_topics_covered[session_id]}")
     print(f"Answer quality: {quality} | Difficulty {prior_level} -> {session_difficulty[session_id]}")
+    print(f"Interview length: {min(current_q + 1, decided_total)} of {decided_total} (min {MIN_QUESTIONS}, max {MAX_QUESTIONS})")
 
-    return response_text
+    return {
+        "question": response_text,
+        "total_questions": decided_total,
+        "is_last_question": (current_q + 1) >= decided_total,
+    }
