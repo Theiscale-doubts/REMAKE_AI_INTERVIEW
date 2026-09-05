@@ -62,7 +62,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 backend/interview_log.csv
-backend/interview_log.csv.bak
+# Covers interview_log.csv.bak plus the timestamped archives written when the
+# log's column layout changes (e.g. interview_log.csv.20260905-122708.bak).
+backend/interview_log.csv*.bak
+backend/interview_log.csv.tmp
 backend/.tmp/
 backend/session_store.json
 backend/invite_store.json

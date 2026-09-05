@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from tools import extract_values
 from agent import run_agent_turn, GROQ_MODEL
-from tools import save_qa_tool, add_values
+from tools import save_qa_tool, record_score
 from groq import Groq
 
 
@@ -622,7 +622,11 @@ EVALUATION GUIDELINES:
     # Extract score and feedback
     score = extract_score(response_text)
     feedback = extract_feedback(response_text)
-    add_values(["Evaluation", f"Score: {score}", f"Feedback: {feedback}"], username="Interview")
+    # Fill the score into this session's existing row. The previous call here
+    # appended a free-floating ["Evaluation", "Score: x", "Feedback: y"] row,
+    # whose cells landed under the Question/Answer/Session_id headers and so
+    # showed up as a bogus extra record in the sheet.
+    record_score(session_id, score)
 
     # Persist so later views of this session reuse this exact evaluation.
     with _eval_lock:
