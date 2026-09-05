@@ -3,7 +3,10 @@
 
   <head>
     <meta charset="UTF-8" />
-    <meta name="author" content="Akshat Trivedi" />
+    <!-- Attribution is env-driven so it can be switched off for a build without
+         editing code: set VITE_AUTHOR_NAME (see .env.production). Empty = no
+         name anywhere in the UI, the PDF report, or this tag. -->
+    <meta name="author" content="%VITE_AUTHOR_NAME%" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: http://localhost:* http://127.0.0.1:*; media-src 'self' blob:;" />
     <meta
       name="viewport"

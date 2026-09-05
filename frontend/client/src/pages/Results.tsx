@@ -22,6 +22,8 @@ import {
 import PoweredByIScale from "@/components/PoweredByIScale";
 
 const API_BASE_URL = `${(import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "")}/api`;
+// Empty (the default in .env.production) omits the credit from the PDF footer.
+const AUTHOR_NAME = import.meta.env.VITE_AUTHOR_NAME || "";
 const formatMarkdown = (text: string): string => {
   return text
     .replace(/##\s*/g, "\n\n## ")        
@@ -273,7 +275,9 @@ export default function Results({
     pdf.setFontSize(8.5);
     pdf.setTextColor(...PDF_COLORS.textLow);
     pdf.text("VoxHire — Powered by The iScale", marginX, pageHeight - 12);
-    pdf.text("Developed & managed by Akshat Trivedi", pageWidth - marginX, pageHeight - 12, { align: "right" });
+    if (AUTHOR_NAME) {
+      pdf.text(`Developed & managed by ${AUTHOR_NAME}`, pageWidth - marginX, pageHeight - 12, { align: "right" });
+    }
   };
 
   paintPageBackground();
@@ -400,7 +404,7 @@ export default function Results({
   // Proctoring flags card
   // -------------------------------
   const flags: [string, number, string][] = [
-    ["Tab switches", result.tabSwitches ?? 0, `${result.tabSwitches ?? 0}×`],
+    ["Focus & copy flags", result.tabSwitches ?? 0, `${result.tabSwitches ?? 0}×`],
     ["Left camera view", result.faceLostCount ?? 0, `${result.faceLostCount ?? 0}×${(result.faceLostSeconds ?? 0) > 0 ? ` (${result.faceLostSeconds}s)` : ""}`],
     ["Multiple faces seen", result.multipleFacesCount ?? 0, `${result.multipleFacesCount ?? 0}×`],
     ["Sudden movement", result.movementEvents ?? 0, `${result.movementEvents ?? 0}×`],
@@ -604,7 +608,7 @@ export default function Results({
 
               {(() => {
                 const flags = [
-                  { label: "Tab switches", value: `${result.tabSwitches ?? 0}`, count: result.tabSwitches ?? 0 },
+                  { label: "Focus & copy flags", value: `${result.tabSwitches ?? 0}`, count: result.tabSwitches ?? 0 },
                   {
                     label: "Left camera view",
                     value: `${result.faceLostCount ?? 0}×${(result.faceLostSeconds ?? 0) > 0 ? ` (${result.faceLostSeconds}s total)` : ""}`,

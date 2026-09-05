@@ -559,14 +559,103 @@ function InterviewPage({
     };
   }, [cameraStream]);
 
-  // Proctoring: count how many times the candidate leaves this tab
+  // Proctoring: count how many times the candidate leaves the interview.
+  //
+  // "document.hidden" alone is not enough. A macOS three/four-finger swipe to
+  // another Space (or to another app already in fullscreen) leaves this page
+  // *visible* in its own Space — it is simply no longer frontmost — so
+  // visibilitychange never fires and the candidate could read notes on a second
+  // desktop undetected. Losing keyboard focus is the signal that does fire for
+  // a Space swipe, so window blur is tracked alongside visibility, with a
+  // document.hasFocus() poll as a backstop for the cases where neither event
+  // is delivered (browsers differ, and some drop blur when a swipe is very
+  // fast).
+  //
+  // All three sources feed one "is the candidate away right now" flag rather
+  // than incrementing directly, because a single Cmd-Tab fires blur *and*
+  // visibilitychange and must still count as one departure.
+  const awayRef = useRef(false);
+
   useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.hidden) setTabSwitches((c) => c + 1);
+    if (interviewComplete) return;
+    // Chrome's camera/mic permission bubble takes focus away from the document
+    // while it is open, which would otherwise register a departure on the very
+    // first second of every interview. Wait for that prompt to resolve — either
+    // outcome is fine — then let focus settle before arming the detector.
+    if (!cameraStream && !cameraError) return;
+
+    let armed = false;
+    const armTimer = window.setTimeout(() => {
+      armed = true;
+    }, 2000);
+
+    const flagAway = () => {
+      if (!armed || awayRef.current) return;
+      awayRef.current = true;
+      setTabSwitches((c) => c + 1);
     };
+    const clearAway = () => {
+      awayRef.current = false;
+    };
+
+    const onVisibilityChange = () => (document.hidden ? flagAway() : clearAway());
+    const onBlur = () => flagAway();
+    const onFocus = () => clearAway();
+
     document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, []);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    // Catches a Space swipe that delivered no event at all: hasFocus() goes
+    // false the moment this window stops being the key window.
+    const poll = window.setInterval(() => {
+      if (document.hidden || !document.hasFocus()) flagAway();
+      else clearAway();
+    }, 1000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+      clearInterval(poll);
+      clearTimeout(armTimer);
+    };
+  }, [interviewComplete, cameraStream, cameraError]);
+
+  // Keep the questions off the clipboard. A candidate who can copy the question
+  // can paste it into another model and read back an answer, so copy/cut, the
+  // context menu, and the keyboard shortcuts that reach the same place are all
+  // blocked — and each attempt is recorded, since trying is itself a signal.
+  useEffect(() => {
+    if (interviewComplete) return;
+
+    const flagCopyAttempt = (e: Event) => {
+      e.preventDefault();
+      setTabSwitches((c) => c + 1);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      // c/x copy the question, a selects it first, s/p save or print the page
+      // to get at the text, u opens the source.
+      if (["c", "x", "a", "s", "p", "u"].includes(e.key.toLowerCase())) {
+        // Never block typing in the candidate's own inputs.
+        const el = e.target as HTMLElement | null;
+        if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+        flagCopyAttempt(e);
+      }
+    };
+
+    document.addEventListener("copy", flagCopyAttempt);
+    document.addEventListener("cut", flagCopyAttempt);
+    document.addEventListener("contextmenu", flagCopyAttempt);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("copy", flagCopyAttempt);
+      document.removeEventListener("cut", flagCopyAttempt);
+      document.removeEventListener("contextmenu", flagCopyAttempt);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [interviewComplete]);
 
   // Fullscreen-only mode: the interview is blocked (see the overlay in the
   // render below) whenever the candidate is not in fullscreen — this fires
@@ -1092,7 +1181,10 @@ function InterviewPage({
         )}
         <div className={`px-3.5 py-1.5 border-t border-hairline ${tabSwitches > 0 ? "bg-amber-500/10" : "bg-surface-2/50"}`}>
           <p className={`text-[11px] ${tabSwitches > 0 ? "text-amber-400" : "text-txt-low"}`}>
-            Tab switches: {tabSwitches}
+            {/* Counts leaving the interview (tab, app, or a macOS Space swipe)
+                as well as blocked copy attempts — "tab switches" alone would
+                understate what the number now covers. */}
+            Focus &amp; copy flags: {tabSwitches}
           </p>
         </div>
         {(proctorStats.faceLostCount > 0 || proctorStats.multipleFacesCount > 0 || proctorStats.movementEvents > 0) && (
@@ -1161,7 +1253,10 @@ function InterviewPage({
                       <span className="text-xs text-txt-low">Voice answer</span>
                     </div>
                     <div className="flex items-start gap-4">
-                      <h3 className="flex-1 text-2xl md:text-[26px] leading-[1.35] tracking-[-0.02em] font-semibold text-txt-hi">
+                      {/* select-none so the question cannot be highlighted and
+                          dragged out; the copy/context-menu handlers above
+                          cover the keyboard and right-click routes. */}
+                      <h3 className="flex-1 text-2xl md:text-[26px] leading-[1.35] tracking-[-0.02em] font-semibold text-txt-hi select-none">
                         {currentQuestion}
                       </h3>
                       <button

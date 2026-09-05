@@ -15,6 +15,9 @@ import {
 } from "lucide-react";
 import PoweredByIScale from "@/components/PoweredByIScale";
 
+// Empty (the default in .env.production) hides the credit line entirely.
+const AUTHOR_NAME = import.meta.env.VITE_AUTHOR_NAME || "";
+
 const CHECKLIST = [
   { icon: VolumeX, text: "Find a quiet environment" },
   { icon: Mic, text: "Allow microphone access when prompted" },
@@ -157,9 +160,11 @@ export default function Home() {
       <footer className="border-t border-hairline">
         <div className="max-w-5xl mx-auto px-7 py-[18px] flex flex-col items-center gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4 text-[13px] text-txt-low">
           <p>© {new Date().getFullYear()} VoxHire. All rights reserved.</p>
-          <p className="text-[9.5px] font-medium uppercase tracking-[0.18em] text-txt-low opacity-65">
-            Developed &amp; managed by Akshat Trivedi
-          </p>
+          {AUTHOR_NAME && (
+            <p className="text-[9.5px] font-medium uppercase tracking-[0.18em] text-txt-low opacity-65">
+              Developed &amp; managed by {AUTHOR_NAME}
+            </p>
+          )}
           <PoweredByIScale />
         </div>
       </footer>
