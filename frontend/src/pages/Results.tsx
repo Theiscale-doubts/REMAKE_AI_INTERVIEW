@@ -26,6 +26,7 @@ import { roleLabel } from "@/roles";
 const API_BASE_URL = `${(import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "")}/api`;
 // Empty (the default in .env.production) omits the credit from the PDF footer.
 const AUTHOR_NAME = import.meta.env.VITE_AUTHOR_NAME || "";
+const COPYRIGHT_HOLDER = import.meta.env.VITE_COPYRIGHT_HOLDER || "The iScale";
 const formatMarkdown = (text: string): string => {
   return text
     .replace(/##\s*/g, "\n\n## ")        
@@ -277,7 +278,7 @@ export default function Results({
     pdf.setFont("Helvetica", "normal");
     pdf.setFontSize(8.5);
     pdf.setTextColor(...PDF_COLORS.textLow);
-    pdf.text("VoxHire — Powered by The iScale", marginX, pageHeight - 12);
+    pdf.text(`© ${new Date().getFullYear()} ${COPYRIGHT_HOLDER}. All rights reserved.`, marginX, pageHeight - 12);
     if (AUTHOR_NAME) {
       pdf.text(`Developed & managed by ${AUTHOR_NAME}`, pageWidth - marginX, pageHeight - 12, { align: "right" });
     }
