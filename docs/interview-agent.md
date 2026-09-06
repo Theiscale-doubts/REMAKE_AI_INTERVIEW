@@ -40,7 +40,7 @@ echo "GOOGLE_API_KEY=your_api_key_here" > .env
 
 ```bash
 # Method 1: Using uvicorn directly
-uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 # Method 2: Using python
 python main.py

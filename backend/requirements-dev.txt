@@ -1,0 +1,5 @@
+# Test-only dependencies. Not installed on Render — keep them out of
+# requirements.txt so the production image stays small and boots fast.
+-r requirements.txt
+pytest==9.1.1
+httpx==0.28.1

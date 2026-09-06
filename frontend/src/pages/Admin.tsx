@@ -11,10 +11,26 @@ import {
   RefreshCw,
   FileText,
   Trash2,
+  Search,
+  X,
 } from "lucide-react";
 import PoweredByIScale from "@/components/PoweredByIScale";
+import SiteFooter from "@/components/SiteFooter";
+import { roleLabel } from "@/roles";
 
 const API_BASE_URL = `${(import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "")}/api`;
+
+interface SessionResult {
+  session_id: string;
+  name: string;
+  email: string;
+  role: string;
+  score: number | null;
+  questions_answered: number;
+  started_at: string;
+  updated_at: string;
+  has_photo: boolean;
+}
 
 interface Invite {
   code: string;
@@ -48,6 +64,18 @@ export default function Admin() {
 
   const [invites, setInvites] = useState<Invite[]>([]);
   const [loadingInvites, setLoadingInvites] = useState(false);
+
+  // Results lookup. Reads the durable sheet directly rather than walking back
+  // from an invite record, so a result stays findable after its code is
+  // deleted or the invite store is wiped by a restart.
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SessionResult[]>([]);
+  const [resultsTotal, setResultsTotal] = useState(0);
+  const [loadingResults, setLoadingResults] = useState(false);
+  const [resultsError, setResultsError] = useState<string | null>(null);
+  const [resultsSource, setResultsSource] = useState<string | null>(null);
+  const [pendingSync, setPendingSync] = useState(0);
+  const [refreshingResults, setRefreshingResults] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
@@ -78,10 +106,52 @@ export default function Admin() {
     [expireSession]
   );
 
+  const fetchResults = useCallback(
+    async (tok: string, search: string, forceRefresh = false) => {
+      if (forceRefresh) setRefreshingResults(true);
+      else setLoadingResults(true);
+      setResultsError(null);
+      try {
+        const params = new URLSearchParams({ q: search, limit: "50" });
+        if (forceRefresh) params.set("refresh", "true");
+        const res = await fetch(`${API_BASE_URL}/admin/results?${params}`, {
+          headers: { "X-Admin-Token": tok },
+        });
+        if (res.status === 401) {
+          expireSession("Your session expired. Please sign in again.");
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setResultsError(data.detail || "Could not load results. Please try again.");
+          return;
+        }
+        setResults(data.results || []);
+        setResultsTotal(data.total ?? 0);
+        setResultsSource(data.source ?? null);
+        setPendingSync(data.pending_sync ?? 0);
+      } catch {
+        setResultsError("Could not reach the server. Please check your connection.");
+      } finally {
+        setLoadingResults(false);
+        setRefreshingResults(false);
+      }
+    },
+    [expireSession]
+  );
+
   // Load the code list as soon as we have a valid session token.
   useEffect(() => {
     if (token) fetchInvites(token);
   }, [token, fetchInvites]);
+
+  // Debounced search — one request after typing settles, not one per keystroke.
+  // Each uncached request is a full spreadsheet fetch against a shared quota.
+  useEffect(() => {
+    if (!token) return;
+    const id = setTimeout(() => fetchResults(token, query), query ? 350 : 0);
+    return () => clearTimeout(id);
+  }, [token, query, fetchResults]);
 
   const verify = async () => {
     if (!password.trim() || verifying) return;
@@ -180,7 +250,7 @@ export default function Admin() {
   return (
     <div className="admin-copper min-h-screen bg-ink text-txt-hi font-display antialiased selection:bg-[rgba(201,154,114,.35)] flex flex-col">
       <header className="sticky top-0 z-20 backdrop-blur-xl bg-ink/[.82] border-b border-hairline">
-        <div className="max-w-5xl mx-auto px-7 h-16 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 sm:px-7 h-16 flex items-center justify-between gap-3">
           <div className="flex flex-col leading-tight">
             <span className="text-[15px] font-bold tracking-[0.1em]">VOXHIRE</span>
             <span className="text-[9.5px] font-medium tracking-[0.2em] text-txt-low uppercase">Admin Console</span>
@@ -189,7 +259,7 @@ export default function Admin() {
         </div>
       </header>
 
-      <main className="flex-1 flex items-start justify-center px-6 py-14">
+      <main className="flex-1 flex items-start justify-center px-4 sm:px-6 py-8 sm:py-14">
         {!token ? (
           <div className="vh-card-raised w-full max-w-md p-9 animate-fade-up mt-8">
             <div className="mx-auto h-12 w-12 rounded-xl bg-[rgba(201,154,114,.1)] border border-[rgba(201,154,114,.35)] grid place-items-center mb-6">
@@ -239,7 +309,7 @@ export default function Admin() {
         ) : (
           <div className="w-full max-w-2xl space-y-6 animate-fade-up">
             {/* Generate */}
-            <div className="vh-card-raised p-8">
+            <div className="vh-card-raised p-5 sm:p-8">
               <div className="flex items-center gap-3.5 mb-1">
                 <span className="h-9 w-9 rounded-[11px] bg-[rgba(201,154,114,.1)] border border-[rgba(201,154,114,.35)] grid place-items-center flex-shrink-0">
                   <ShieldCheck className="h-[18px] w-[18px] text-acc-copper" />
@@ -292,7 +362,7 @@ export default function Admin() {
             </div>
 
             {/* Codes list */}
-            <div className="vh-card p-8">
+            <div className="vh-card p-5 sm:p-8">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-[15px] tracking-[-0.01em] font-semibold">Invite codes</h2>
                 <button
@@ -314,7 +384,7 @@ export default function Admin() {
                   {invites.map((inv) => (
                     <div
                       key={inv.code}
-                      className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-hairline bg-bg-2"
+                      className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 px-4 py-3 rounded-xl border border-hairline bg-bg-2"
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2.5">
@@ -335,7 +405,7 @@ export default function Admin() {
                       </div>
                       <div className="flex-shrink-0">
                         {confirmDelete === inv.code ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="text-[12px] text-txt-mid whitespace-nowrap">Delete?</span>
                             <button
                               onClick={() => deleteInvite(inv.code)}
@@ -377,16 +447,129 @@ export default function Admin() {
                 </div>
               )}
             </div>
+
+            {/* Results lookup */}
+            <div className="vh-card p-5 sm:p-8">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <h2 className="text-[15px] tracking-[-0.01em] font-semibold">Interview results</h2>
+                <button
+                  onClick={() => token && fetchResults(token, query, true)}
+                  disabled={refreshingResults}
+                  title="Re-read the spreadsheet, bypassing the cache"
+                  className="inline-flex items-center gap-2 text-[12px] text-txt-mid hover:text-txt-hi transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${refreshingResults ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+              </div>
+              <p className="text-[12.5px] text-txt-low mb-5">
+                Search every completed interview by name, email, role, session ID, or a question
+                that was asked. Works without the invite code.
+              </p>
+
+              <div className="relative mb-5">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[15px] w-[15px] text-txt-low pointer-events-none" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search by name, email, role, or session ID…"
+                  className="vh-input text-[13.5px] pl-10 pr-10 py-3"
+                />
+                {query && (
+                  <button
+                    onClick={() => setQuery("")}
+                    title="Clear search"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-txt-low hover:text-txt-hi transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* A non-zero queue means the durable copy is behind — say so
+                  rather than letting the list look authoritative when it isn't. */}
+              {pendingSync > 0 && (
+                <div className="mb-4 rounded-xl border border-[rgba(201,154,114,.3)] bg-[rgba(201,154,114,.07)] px-4 py-3">
+                  <p className="text-[12.5px] text-acc-copper">
+                    {pendingSync} interview{pendingSync === 1 ? "" : "s"} still syncing to the
+                    spreadsheet — they may not appear here yet.
+                  </p>
+                </div>
+              )}
+              {resultsSource === "csv" && (
+                <div className="mb-4 rounded-xl border border-[rgba(177,18,38,.3)] bg-[rgba(177,18,38,.07)] px-4 py-3">
+                  <p className="text-[12.5px] text-[#DFA2A8]">
+                    Showing local records — the spreadsheet is unreachable. This copy does not
+                    survive a restart.
+                  </p>
+                </div>
+              )}
+              {resultsError && (
+                <p className="mb-4 text-[12.5px] text-[#E05860]">{resultsError}</p>
+              )}
+
+              {loadingResults ? (
+                <p className="text-[13px] text-txt-low py-6 text-center">Loading…</p>
+              ) : results.length === 0 ? (
+                <p className="text-[13px] text-txt-low py-6 text-center">
+                  {query ? `No interviews match “${query}”.` : "No completed interviews yet."}
+                </p>
+              ) : (
+                <>
+                  <div className="space-y-2.5">
+                    {results.map((r) => (
+                      <div
+                        key={r.session_id}
+                        className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 px-4 py-3 rounded-xl border border-hairline bg-bg-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="font-semibold text-txt-hi truncate">
+                              {r.name || "Unnamed candidate"}
+                            </span>
+                            {r.role && (
+                              <span className="text-[10px] font-medium uppercase tracking-[0.1em] rounded-full border border-hairline-strong px-2 py-0.5 text-txt-mid">
+                                {roleLabel(r.role)}
+                              </span>
+                            )}
+                            {r.score !== null && (
+                              <span className="text-[10px] font-medium uppercase tracking-[0.1em] rounded-full border border-[rgba(201,154,114,.45)] bg-[rgba(201,154,114,.14)] px-2 py-0.5 text-acc-copper tabular-nums">
+                                {r.score.toFixed(1)} / 10
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1 text-[12px] text-txt-mid truncate">
+                            {r.email || "no email"}
+                            {r.questions_answered ? ` · ${r.questions_answered} answers` : ""}
+                            {r.updated_at ? ` · ${r.updated_at}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex-shrink-0">
+                          <button
+                            onClick={() => setLocation(`/results/${r.session_id}`)}
+                            className="inline-flex items-center gap-2 rounded-lg border border-hairline-strong bg-surface-1 px-3 py-2 text-[12.5px] font-medium text-txt-mid transition-colors duration-200 hover:text-txt-hi"
+                          >
+                            <FileText className="h-3.5 w-3.5 text-acc-copper" />
+                            View result
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {resultsTotal > results.length && (
+                    <p className="mt-4 text-[12px] text-txt-low text-center">
+                      Showing {results.length} of {resultsTotal} — narrow your search to see more.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         )}
       </main>
 
-      <footer className="border-t border-hairline">
-        <div className="max-w-5xl mx-auto px-7 py-[18px] flex items-center justify-between gap-4 text-[13px] text-txt-low">
-          <p>© {new Date().getFullYear()} VoxHire. All rights reserved.</p>
-          <PoweredByIScale />
-        </div>
-      </footer>
+      <SiteFooter maxWidth="max-w-5xl" />
     </div>
   );
 }

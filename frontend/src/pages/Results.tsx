@@ -20,6 +20,8 @@ import {
   FileText,
 } from "lucide-react";
 import PoweredByIScale from "@/components/PoweredByIScale";
+import SiteFooter from "@/components/SiteFooter";
+import { roleLabel } from "@/roles";
 
 const API_BASE_URL = `${(import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "")}/api`;
 // Empty (the default in .env.production) omits the credit from the PDF footer.
@@ -333,7 +335,7 @@ export default function Results({
   const infoRows: [string, string][] = [
     ["Candidate", sanitizeForPdf(displayName)],
     ["Email", sanitizeForPdf(displayEmail)],
-    ["Position", sanitizeForPdf(displayRole)],
+    ["Position", sanitizeForPdf(roleLabel(displayRole))],
   ];
   const cardPad = 6;
   const rowH = 6.5;
@@ -560,26 +562,26 @@ export default function Results({
     );
   }
 
-  const roleLabel = displayRole.charAt(0).toUpperCase() + displayRole.slice(1);
+  const roleTitle = roleLabel(displayRole);
 
   return (
     <div className="min-h-screen bg-ink text-txt-hi font-display antialiased selection:bg-acc-cyan/40">
       <header className="sticky top-0 z-20 backdrop-blur-xl bg-ink/[.82] border-b border-hairline">
-        <div className="max-w-6xl mx-auto px-7 h-16 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-7 h-16 flex items-center justify-between gap-3">
           <button onClick={onBack} className="flex items-center gap-2 text-[13px] text-txt-mid hover:text-txt-hi transition-colors">
             <ArrowLeft className="h-[15px] w-[15px]" />
             Back
           </button>
-          <span className="text-[14.5px] font-semibold tracking-[0.06em]">INTERVIEW REPORT</span>
+          <span className="text-[12px] sm:text-[14.5px] font-semibold tracking-[0.06em] truncate">INTERVIEW REPORT</span>
           <span className="hidden sm:inline-flex"><PoweredByIScale /></span>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-7 py-10 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+      <main className="max-w-6xl mx-auto px-4 sm:px-7 py-6 sm:py-10 grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
 
         {/* LEFT SIDE - Candidate Info */}
         <aside className="space-y-6 animate-fade-up">
-          <section className="vh-card p-6">
+          <section className="vh-card p-5 sm:p-6">
             <h2 className="text-[10.5px] font-medium uppercase tracking-[0.16em] text-txt-low mb-5">Candidate</h2>
 
             <div className="flex items-center gap-4">
@@ -595,7 +597,7 @@ export default function Results({
             <div className="mt-[22px] space-y-2.5 text-sm">
               <div className="px-4 py-3 rounded-xl border border-hairline bg-[rgba(5,5,5,.5)] flex items-center gap-3">
                 <Briefcase className="h-3.5 w-3.5 text-txt-low flex-shrink-0" />
-                <span className="text-txt-mid text-[13px]">{roleLabel}</span>
+                <span className="text-txt-mid text-[13px]">{roleTitle}</span>
               </div>
               <div className="px-4 py-3 rounded-xl border border-hairline bg-[rgba(5,5,5,.5)] flex items-center gap-3">
                 <ListOrdered className="h-3.5 w-3.5 text-txt-low flex-shrink-0" />
@@ -641,12 +643,12 @@ export default function Results({
           </section>
 
           {/* Score */}
-          <section className="vh-card-raised p-7 text-center relative overflow-hidden">
+          <section className="vh-card-raised p-5 sm:p-7 text-center relative overflow-hidden">
             <h2 className="relative text-[10.5px] font-medium uppercase tracking-[0.16em] text-txt-low mb-5 flex items-center justify-center gap-2">
               <Award className="h-3.5 w-3.5 text-txt-low" />
               Overall score
             </h2>
-            <div className={`relative text-7xl font-semibold tracking-[-0.04em] tabular-nums ${getScoreColor(result.score)}`}>
+            <div className={`relative text-6xl sm:text-7xl font-semibold tracking-[-0.04em] tabular-nums ${getScoreColor(result.score)}`}>
               {result.score}
             </div>
             <div className="relative text-[13px] text-txt-low mt-2 mb-6">out of 10</div>
@@ -666,7 +668,7 @@ export default function Results({
         {/* RIGHT SIDE - Feedback */}
         <div className="lg:col-span-2 space-y-6 animate-fade-up" style={{ animationDelay: "0.1s" }}>
 
-          <section className="vh-card-raised p-8">
+          <section className="vh-card-raised p-5 sm:p-8">
             <h2 className="text-[19px] tracking-[-0.02em] font-semibold mb-[22px] flex items-center gap-3.5">
               <span className="h-9 w-9 rounded-[11px] bg-[rgba(177,18,38,.08)] border border-[rgba(177,18,38,.35)] grid place-items-center">
                 <FileText className="h-[15px] w-[15px] text-[#E05860]" />
@@ -740,12 +742,7 @@ export default function Results({
 
       </main>
 
-      <footer className="border-t border-hairline">
-        <div className="max-w-6xl mx-auto px-7 py-[18px] flex flex-col sm:flex-row items-center justify-center gap-3 text-[13px] text-txt-low">
-          <span>© {new Date().getFullYear()} VoxHire. All rights reserved.</span>
-          <PoweredByIScale />
-        </div>
-      </footer>
+      <SiteFooter maxWidth="max-w-6xl" />
     </div>
   );
 }

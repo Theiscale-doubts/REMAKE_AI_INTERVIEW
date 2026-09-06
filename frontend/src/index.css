@@ -5,6 +5,10 @@
 
 /* ─── VoxHire premium dark redesign tokens ──────────────────────── */
 @theme {
+  /* Extra-small breakpoint for narrow phones (Tailwind starts at sm/40rem,
+     which leaves 320–400px devices with no step of their own). */
+  --breakpoint-xs: 26rem;
+
   /* Layered dark surfaces */
   --color-ink: #050505;
   --color-bg-2: #0b0b0c;

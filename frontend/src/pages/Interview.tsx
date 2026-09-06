@@ -23,6 +23,9 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import PoweredByIScale from "@/components/PoweredByIScale";
+import SiteFooter from "@/components/SiteFooter";
+import { ROLES, DEFAULT_ROLE, roleLabel } from "@/roles";
+import { apiFetch, friendlyMessage } from "@/lib/api";
 const API_BASE_URL = `${(import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "")}/api`;
 // Matches backend/agent.py's MIN_QUESTIONS/MAX_QUESTIONS — the actual
 // per-session total is decided server-side and reported on every /api/chat
@@ -39,7 +42,7 @@ export default function VoxHireApp() {
     name: "",
     email: "",
     photo: null as string | null,
-    role: "frontend",
+    role: DEFAULT_ROLE,
   });
   const [sessionId, setSessionId] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -167,12 +170,12 @@ function SetupPage({
     onStart();
   };
 
-  const roleLabel = userDetails.role.charAt(0).toUpperCase() + userDetails.role.slice(1).replace(/([A-Z])/g, " $1");
+  const roleTitle = roleLabel(userDetails.role);
 
   return (
     <div className="min-h-screen bg-ink text-txt-hi font-display antialiased selection:bg-acc-cyan/40">
       <header className="sticky top-0 z-20 backdrop-blur-xl bg-ink/[.82] border-b border-hairline">
-        <div className="max-w-6xl mx-auto px-7 h-16 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-7 h-16 flex items-center justify-between gap-3">
           <div className="flex flex-col leading-tight">
             <span className="text-[15px] font-bold tracking-[0.1em]">VOXHIRE</span>
             <span className="text-[9.5px] font-medium tracking-[0.2em] text-txt-low uppercase">AI Interview Platform</span>
@@ -181,7 +184,7 @@ function SetupPage({
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-7 py-8">
+      <main className="max-w-6xl mx-auto px-4 sm:px-7 py-6 sm:py-8">
         <div className="max-w-[620px] mb-8 animate-fade-up">
           <div className="vh-badge mb-4">
             <span className="h-1.5 w-1.5 rounded-full bg-acc-cyan animate-pulse" />
@@ -199,7 +202,7 @@ function SetupPage({
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.85fr] gap-6 items-start">
           {/* Left: candidate details */}
           <section className="vh-card-raised animate-fade-up" style={{ animationDelay: "0.08s" }}>
-            <div className="px-7 pt-6 pb-5 border-b border-hairline">
+            <div className="px-5 sm:px-7 pt-6 pb-5 border-b border-hairline">
               <h2 className="text-[17px] tracking-[-0.01em] font-semibold">Your details</h2>
               <p className="text-[13px] text-txt-mid mt-1">Tell us about yourself</p>
             </div>
@@ -276,22 +279,19 @@ function SetupPage({
                     onChange={(e) => setUserDetails({ ...userDetails, role: e.target.value })}
                     className="vh-input appearance-none text-[13.5px] pl-10 pr-10 py-3.5"
                   >
-                    <option value="frontend">Front-End Developer</option>
-                    <option value="datascience">Data Scientist</option>
-                    <option value="data_analytics">Data Analytics</option>
-                    <option value="product">Product Manager</option>
-                    <option value="devops">DevOps Engineer</option>
-                    <option value="hr">HR / Managerial</option>
+                    {ROLES.map((r) => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
                   </select>
                   <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 h-[15px] w-[15px] text-txt-low pointer-events-none" />
                 </div>
                 <p className="mt-2.5 text-[11.5px] text-txt-low leading-relaxed">
-                  {roleLabel} — AI-generated questions tailored to this role, answered by voice.
+                  {roleTitle} — AI-generated questions tailored to this role, answered by voice.
                 </p>
               </div>
             </div>
 
-            <div className="px-7 py-6 border-t border-hairline bg-[rgba(5,5,5,.45)]">
+            <div className="px-5 sm:px-7 py-6 border-t border-hairline bg-[rgba(5,5,5,.45)]">
               <button
                 onClick={handleStartInterview}
                 disabled={starting}
@@ -328,7 +328,7 @@ function SetupPage({
           <div className="space-y-6 animate-fade-up" style={{ animationDelay: "0.16s" }}>
             <section className="vh-card p-7">
               <h2 className="text-[17px] tracking-[-0.01em] font-semibold mb-5">What to expect</h2>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 {[
                   { icon: ListChecks, label: "Questions", value: `${MIN_QUESTIONS}-${MAX_QUESTIONS} adaptive` },
                   { icon: Clock, label: "Duration", value: "≈ 15–20 min" },
@@ -384,12 +384,7 @@ function SetupPage({
         </div>
       </main>
 
-      <footer className="border-t border-hairline mt-6">
-        <div className="max-w-6xl mx-auto px-7 py-[18px] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-[13px] text-txt-low">
-          <p>© {new Date().getFullYear()} VoxHire. All rights reserved.</p>
-          <PoweredByIScale />
-        </div>
-      </footer>
+      <SiteFooter maxWidth="max-w-6xl" />
     </div>
   );
 }
@@ -436,6 +431,10 @@ function InterviewPage({
   // Interview-time webcam snapshot: captured once, sent once with the first save.
   const capturedPhotoRef = useRef<string | null>(null);
   const photoSentRef = useRef(false);
+  // True once THIS turn's answer is safely stored server-side. Latches the
+  // save step so pressing Submit again after a failed next-question fetch
+  // retries only what actually failed.
+  const answerSavedRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const levelIntervalRef = useRef<number | null>(null);
   const peakLevelRef = useRef(0);
@@ -680,7 +679,7 @@ function InterviewPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFullscreen]);
 
-  const roleLabel = role.charAt(0).toUpperCase() + role.slice(1).replace(/([A-Z])/g, " $1");
+  const roleTitle = roleLabel(role);
 
  
   const showCustomAlert = (message: string) => {
@@ -1034,34 +1033,50 @@ function InterviewPage({
 
     // Capture the verification snapshot once, and only attach it to a single
     // save so we don't re-upload the image on every answer.
+    // Marked as sent only after the save that carries it succeeds — setting the
+    // flag at capture time meant a failed save burned the snapshot, and the
+    // retry uploaded nothing, leaving the report with no photo at all.
     let photoForThisSave: string | null = null;
     if (!photoSentRef.current) {
       photoForThisSave = captureSnapshot();
-      if (photoForThisSave) photoSentRef.current = true;
     }
 
-    try {
-      // Save the current Q&A
-      await fetch(`${API_BASE_URL}/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: currentQuestion,
-          answer: transcript,
-          session_id: sessionId,
-          name: name,
-          email: email,
-          role: role,
-          tab_switches: tabSwitches,
-          face_lost_count: proctorStats.faceLostCount,
-          face_lost_seconds: Math.round(proctorStats.faceLostSeconds),
-          multiple_faces_count: proctorStats.multipleFacesCount,
-          movement_events: proctorStats.movementEvents,
-          photo: photoForThisSave
-        })
-      });
+    // Retrying after a failure must not repeat work already committed. The
+    // previous version re-ran the save AND re-incremented the question count
+    // on every retry, so one hiccup could duplicate the answer and desync the
+    // progress counter from the backend's. Each step is now latched.
+    const answerForThisTurn = transcript;
 
-      // --- MODIFIED: Increment question count and check limit ---
+    try {
+      // ---- Step 1: persist the answer (skipped if a prior attempt got it in)
+      if (!answerSavedRef.current) {
+        await apiFetch(`${API_BASE_URL}/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: currentQuestion,
+            answer: answerForThisTurn,
+            session_id: sessionId,
+            name: name,
+            email: email,
+            role: role,
+            tab_switches: tabSwitches,
+            face_lost_count: proctorStats.faceLostCount,
+            face_lost_seconds: Math.round(proctorStats.faceLostSeconds),
+            multiple_faces_count: proctorStats.multipleFacesCount,
+            movement_events: proctorStats.movementEvents,
+            photo: photoForThisSave
+          })
+        }, {
+          onRetry: () => setStatusText("Saving your answer — retrying…"),
+        });
+        answerSavedRef.current = true;
+        if (photoForThisSave) photoSentRef.current = true;
+      }
+
+      // ---- Step 2: advance the counter, once
+      // Counted only after the answer is safely stored, so the progress shown
+      // can never run ahead of what the backend actually has.
       const newQuestionCount = questionCount + 1;
       setQuestionCount(newQuestionCount);
 
@@ -1074,26 +1089,36 @@ function InterviewPage({
         setIsProcessing(false); // Stop processing
         return; // Stop here, don't fetch another question
       }
-      // --- End Modification ---
 
-      // Get next question
-      const response = await fetch(`${API_BASE_URL}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionId,
-          message: transcript,
-          domain: role,
-          name,
-        })
-      });
+      // ---- Step 3: fetch the next question
+      setStatusText("Preparing the next question…");
+      const data = await apiFetch<{ question?: string; total_questions?: number }>(
+        `${API_BASE_URL}/chat`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            message: answerForThisTurn,
+            domain: role,
+            name,
+          })
+        },
+        { onRetry: () => setStatusText("Connection hiccup — retrying…") },
+      );
 
-      const data = await response.json();
+      // A 2xx with no usable question would previously blank the interview
+      // screen silently; treat it as the failure it is.
+      if (!data.question || typeof data.question !== "string") {
+        throw new Error("The interviewer did not return a question.");
+      }
 
       if (typeof data.total_questions === "number") {
         setTotalQuestions(data.total_questions);
       }
       setCurrentQuestion(data.question);
+      // This turn is fully committed — arm the latch for the next answer.
+      answerSavedRef.current = false;
       setTranscript("");
       setTotalSeconds(0);
       setSubmitted(false);
@@ -1103,8 +1128,14 @@ function InterviewPage({
 
     } catch (error) {
       console.error('Failed to submit answer:', error);
-      showCustomAlert('Failed to submit answer. Please try again.');
-      setStatusText("Error submitting");
+      // Roll the counter back to whatever the backend actually has, so a retry
+      // resumes from the right question instead of skipping one.
+      setQuestionCount(questionCount);
+      showCustomAlert(friendlyMessage(
+        error,
+        "We couldn't reach the interview service. Your answer is still here — please press Submit again.",
+      ));
+      setStatusText("Couldn't submit — press Submit to retry");
       setSubmitted(false); // Allow resubmission on error
     } finally {
       setIsProcessing(false);
@@ -1140,36 +1171,36 @@ function InterviewPage({
       )}
 
       {/* Proctoring monitor — fixed top-right */}
-      <div className="fixed top-[84px] right-4 z-10 w-[212px] vh-card overflow-hidden">
-        <div className="px-3.5 py-2.5 flex items-center justify-between border-b border-hairline bg-surface-2/70">
-          <span className="flex items-center gap-2 text-[11px] font-medium text-txt-mid uppercase tracking-[0.1em]">
-            <Camera className="h-3.5 w-3.5 text-txt-low" />
+      <div className="fixed top-[72px] sm:top-[84px] right-2 sm:right-4 z-10 w-[112px] xs:w-[136px] sm:w-[180px] md:w-[212px] vh-card overflow-hidden">
+        <div className="px-2 sm:px-3.5 py-1.5 sm:py-2.5 flex items-center justify-between gap-1 border-b border-hairline bg-surface-2/70">
+          <span className="flex items-center gap-1.5 sm:gap-2 text-[9px] sm:text-[11px] font-medium text-txt-mid uppercase tracking-[0.1em]">
+            <Camera className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-txt-low flex-shrink-0" />
             Proctoring
           </span>
           {!cameraError && faceStatus === "detected" && (
             <span className="h-1.5 w-1.5 rounded-full bg-acc-emerald animate-pulse" />
           )}
         </div>
-        <div className="relative bg-black" style={{ height: 150 }}>
+        <div className="relative bg-black h-[84px] xs:h-[100px] sm:h-[128px] md:h-[150px]">
           {cameraError ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 px-2">
-              <CameraOff className="h-7 w-7 text-[#E05860]/60" />
-              <span className="text-xs text-[#E05860] text-center">Camera unavailable</span>
+              <CameraOff className="h-5 w-5 sm:h-7 sm:w-7 text-[#E05860]/60" />
+              <span className="text-[10px] sm:text-xs text-[#E05860] text-center leading-tight">Camera unavailable</span>
             </div>
           ) : (
             <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
           )}
         </div>
         {cameraError && (
-          <div className="px-3.5 py-2 bg-[rgba(177,18,38,.1)] border-t border-[rgba(177,18,38,.2)]">
-            <p className="text-[11px] leading-snug text-[#DFA2A8]">{cameraError}</p>
+          <div className="px-2 sm:px-3.5 py-1.5 sm:py-2 bg-[rgba(177,18,38,.1)] border-t border-[rgba(177,18,38,.2)]">
+            <p className="text-[9.5px] sm:text-[11px] leading-snug text-[#DFA2A8]">{cameraError}</p>
           </div>
         )}
         {!cameraError && (
-          <div className={`px-3.5 py-1.5 border-t border-hairline ${
+          <div className={`px-2 sm:px-3.5 py-1 sm:py-1.5 border-t border-hairline ${
             faceStatus === "detected" ? "bg-[rgba(95,164,127,.06)]" : faceStatus === "none" ? "bg-[rgba(177,18,38,.1)]" : "bg-surface-2/50"
           }`}>
-            <p className={`text-[11px] ${
+            <p className={`text-[9.5px] sm:text-[11px] leading-tight ${
               faceStatus === "detected" ? "text-acc-emerald" : faceStatus === "none" ? "text-[#E05860]" : "text-txt-low"
             }`}>
               {faceStatus === "detected" && "Face detected"}
@@ -1179,8 +1210,8 @@ function InterviewPage({
             </p>
           </div>
         )}
-        <div className={`px-3.5 py-1.5 border-t border-hairline ${tabSwitches > 0 ? "bg-amber-500/10" : "bg-surface-2/50"}`}>
-          <p className={`text-[11px] ${tabSwitches > 0 ? "text-amber-400" : "text-txt-low"}`}>
+        <div className={`px-2 sm:px-3.5 py-1 sm:py-1.5 border-t border-hairline ${tabSwitches > 0 ? "bg-amber-500/10" : "bg-surface-2/50"}`}>
+          <p className={`text-[9.5px] sm:text-[11px] leading-tight ${tabSwitches > 0 ? "text-amber-400" : "text-txt-low"}`}>
             {/* Counts leaving the interview (tab, app, or a macOS Space swipe)
                 as well as blocked copy attempts — "tab switches" alone would
                 understate what the number now covers. */}
@@ -1188,8 +1219,8 @@ function InterviewPage({
           </p>
         </div>
         {(proctorStats.faceLostCount > 0 || proctorStats.multipleFacesCount > 0 || proctorStats.movementEvents > 0) && (
-          <div className="px-3.5 py-1.5 border-t border-hairline bg-amber-500/10">
-            <p className="text-[11px] leading-relaxed text-amber-400">
+          <div className="px-2 sm:px-3.5 py-1 sm:py-1.5 border-t border-hairline bg-amber-500/10">
+            <p className="text-[9.5px] sm:text-[11px] leading-relaxed text-amber-400">
               {proctorStats.faceLostCount > 0 && `Left view: ${proctorStats.faceLostCount}× `}
               {proctorStats.multipleFacesCount > 0 && `· Multiple faces: ${proctorStats.multipleFacesCount}× `}
               {proctorStats.movementEvents > 0 && `· Movement: ${proctorStats.movementEvents}×`}
@@ -1199,10 +1230,10 @@ function InterviewPage({
       </div>
 
       <header className="sticky top-0 z-20 backdrop-blur-xl bg-ink/[.82] border-b border-hairline">
-        <div className="max-w-6xl mx-auto px-7 h-16 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-7 h-16 flex items-center justify-between gap-3">
           <div className="flex flex-col leading-tight">
             <span className="text-[15px] font-bold tracking-[0.1em]">VOXHIRE</span>
-            <span className="text-[9.5px] font-medium tracking-[0.2em] text-txt-low uppercase">{roleLabel} interview</span>
+            <span className="text-[9.5px] font-medium tracking-[0.2em] text-txt-low uppercase truncate">{roleTitle} interview</span>
           </div>
           <div className="flex items-center gap-5">
             <span className="hidden md:inline-flex vh-badge tabular-nums">
@@ -1233,7 +1264,7 @@ function InterviewPage({
         )}
       </header>
 
-      <main className="max-w-6xl mx-auto px-7 py-10 space-y-6 md:pr-[248px] lg:pr-[264px]">
+      <main className="max-w-6xl mx-auto px-4 sm:px-7 py-6 sm:py-10 space-y-6 pr-[124px] xs:pr-[150px] sm:pr-[196px] md:pr-[248px] lg:pr-[264px]">
         {isProcessing && !currentQuestion && !interviewComplete ? (
           <div className="vh-card-raised p-12 text-center animate-fade-up">
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-5 text-acc-cyan" />
@@ -1245,7 +1276,7 @@ function InterviewPage({
               <div key={questionCount} className="animate-fade-up space-y-6">
                 {/* Question — the centerpiece */}
                 <div className="vh-card-raised overflow-hidden">
-                  <div className="px-8 pt-8 pb-7">
+                  <div className="px-5 sm:px-8 pt-6 sm:pt-8 pb-6 sm:pb-7">
                     <div className="flex items-center gap-3 mb-5">
                       <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(177,18,38,.4)] bg-[rgba(177,18,38,.08)] px-3.5 py-1.5 text-[11.5px] font-semibold text-[#E05860] tabular-nums tracking-[0.04em]">
                         QUESTION {questionCount + 1} OF {totalQuestions}
@@ -1256,7 +1287,7 @@ function InterviewPage({
                       {/* select-none so the question cannot be highlighted and
                           dragged out; the copy/context-menu handlers above
                           cover the keyboard and right-click routes. */}
-                      <h3 className="flex-1 text-2xl md:text-[26px] leading-[1.35] tracking-[-0.02em] font-semibold text-txt-hi select-none">
+                      <h3 className="flex-1 min-w-0 text-lg sm:text-2xl md:text-[26px] leading-[1.35] tracking-[-0.02em] font-semibold text-txt-hi select-none">
                         {currentQuestion}
                       </h3>
                       <button
@@ -1281,7 +1312,7 @@ function InterviewPage({
                   </div>
 
                   {/* Waveform stage */}
-                  <div className="px-8 pb-8">
+                  <div className="px-5 sm:px-8 pb-6 sm:pb-8">
                     <div
                       className="rounded-2xl border transition-colors duration-500"
                       style={{
@@ -1291,11 +1322,11 @@ function InterviewPage({
                           : "#0B0B0C",
                       }}
                     >
-                      <div className="flex items-end justify-center gap-[5px] h-24 px-6 pt-5">
+                      <div className="flex items-end justify-center gap-[3px] sm:gap-[5px] h-16 sm:h-24 px-3 sm:px-6 pt-4 sm:pt-5 overflow-hidden">
                         {micLevels.map((level, i) => (
                           <span
                             key={i}
-                            className="w-2 rounded-full transition-colors duration-300"
+                            className="w-1.5 sm:w-2 rounded-full transition-colors duration-300"
                             style={{
                               height: `${8 + level * 92}%`,
                               transition: "height 0.1s ease-out, background 0.3s",
@@ -1304,7 +1335,7 @@ function InterviewPage({
                           />
                         ))}
                       </div>
-                      <div className="flex items-center justify-between px-5 py-3 border-t border-hairline/60 mt-4 bg-[rgba(5,5,5,.35)]">
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5 py-3 border-t border-hairline/60 mt-4 bg-[rgba(5,5,5,.35)]">
                         <span
                           className="inline-flex items-center gap-2 text-xs font-medium"
                           style={{
@@ -1334,7 +1365,7 @@ function InterviewPage({
                     </div>
 
                     {/* Controls */}
-                    <div className="mt-6 flex items-center gap-3 flex-wrap">
+                    <div className="mt-6 grid grid-cols-2 sm:flex sm:items-center gap-3 sm:flex-wrap">
                       <button
                         onClick={startRecording}
                         disabled={isRecording || submitted || isProcessing || !isFullscreen}
@@ -1363,7 +1394,7 @@ function InterviewPage({
                         <RotateCcw className="h-4 w-4 text-txt-mid" />
                         Retake
                       </button>
-                      <div className="flex-1" />
+                      <div className="hidden sm:block sm:flex-1" />
                       <button
                         onClick={submitAnswer}
                         disabled={!transcript || submitted || isProcessing || isRecording}

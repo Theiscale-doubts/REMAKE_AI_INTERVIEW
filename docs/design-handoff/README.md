@@ -3,7 +3,7 @@
 ## Overview
 Visual redesign of the VoxHire AI Interview Platform (internal tool by The iScale). Candidates land here via a private link and complete a voice-based, proctored AI interview. This handoff restyles all four screens to a premium enterprise dark theme ("90% premium black / 10% deep crimson") **without changing any logic, routing, API calls, state management, or user flow**.
 
-Target codebase: `frontend/client/src` — React + TypeScript + Tailwind (v4 syntax, tokens in `index.css`), pages in `src/pages/Home.tsx`, `Interview.tsx`, `Results.tsx`, shared header/`PoweredByIScale.tsx`.
+Target codebase: `frontend/src` — React + TypeScript + Tailwind (v4 syntax, tokens in `index.css`), pages in `src/pages/Home.tsx`, `Interview.tsx`, `Results.tsx`, shared header/`PoweredByIScale.tsx`.
 
 ## About the Design Files
 The `.dc.html` files in this bundle are **design references created in HTML** — interactive prototypes showing intended look and behavior. They are NOT production code. The task is to **recreate these designs inside the existing React/Tailwind codebase**, reusing its components, state, and handlers exactly as they are. Only classNames / CSS tokens / markup structure inside existing components should change.

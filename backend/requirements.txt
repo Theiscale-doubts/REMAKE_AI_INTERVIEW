@@ -1,13 +1,23 @@
-fastapi
-uvicorn[standard]
-langchain
-langchain-openai
-langchain-core
-pydantic
-python-dotenv
-gspread 
-oauth2client
-groq
-langchain-groq
-typing-extensions
-python-multipart
+# Pinned deliberately. Unpinned deps meant a Render rebuild could pull a new
+# major version of FastAPI/LangChain/Pydantic and break a deploy that had not
+# changed a line of code — the single most common way a working free-tier
+# service dies. Bump these on purpose, not by accident.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
+pydantic==2.13.5
+python-dotenv==1.2.3
+
+# LLM stack
+groq==0.37.1
+langchain==1.3.18
+langchain-core==1.6.1
+langchain-openai==1.6.0
+langchain-groq==1.1.3
+
+# Google Sheets (durable record). google-auth replaces the deprecated,
+# archived oauth2client that this project previously depended on.
+gspread==6.2.1
+google-auth==2.57.0
+
+typing-extensions==4.16.0

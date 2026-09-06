@@ -3,28 +3,64 @@ services:
     name: voxhire-backend
     runtime: python
     rootDir: backend
+    plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /api/check
+    # Single worker: the free tier has 512MB and the in-memory session/rate-limit
+    # state is per-process, so a second worker would double memory and split that
+    # state in half. Scale by moving state to a shared store first, not by adding
+    # workers here.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --timeout-keep-alive 65
+    healthCheckPath: /api/healthz
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      # ── Required ────────────────────────────────────────────────────────
+      # GROQ_API_KEY alone is a complete configuration (transcription,
+      # evaluation and the interview all work). OPENAI_API_KEY is optional.
       - key: GROQ_API_KEY
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # ── Durable record ──────────────────────────────────────────────────
+      # The free tier's filesystem is EPHEMERAL: the JSON stores are wiped on
+      # every deploy and every cold start. Google Sheets is the only thing that
+      # survives, so this is effectively required in production.
       - key: google_credentials_json
         sync: false
-
-  - type: web
-    name: voxhire-frontend
-    runtime: static
-    buildCommand: cd frontend && npm ci && npm run build
-    staticPublishPath: frontend/dist/public
-    envVars:
-      - key: VITE_API_URL
+      # Static invite codes. Unlike codes minted in the admin console, these
+      # live in the environment and therefore survive restarts.
+      - key: INVITE_CODES
         sync: false
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
+      # ── CORS ────────────────────────────────────────────────────────────
+      # The frontend is served from Hostinger, so this MUST list that origin
+      # (comma-separated for more than one). Leaving it unset falls back to "*".
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # ── Tunables (safe defaults; override only if needed) ───────────────
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LLM_PROVIDER_ORDER
+        value: groq,openai
+      - key: SESSION_TTL_SECONDS
+        value: "21600"
+      - key: MAX_TRACKED_SESSIONS
+        value: "500"
+      - key: MAX_STORED_SESSIONS
+        value: "400"
+      - key: GLOBAL_RATE_LIMIT
+        value: "240"
+      # Name of the Google spreadsheet used as the durable record. Point a
+      # staging deploy at a different sheet so it can never write to production.
+      - key: SHEET_NAME
+        value: Interview
+      # Point at a mounted disk to make the JSON stores genuinely durable.
+      # Requires a paid plan with a disk attached; harmless to leave unset.
+      # - key: DATA_DIR
+      #   value: /var/data
+
+# The frontend is deployed as static files to Hostinger, not to Render.
+# Build it with:  cd frontend && pnpm install && pnpm build
+# then upload the contents of frontend/dist/ (including .htaccess) to
+# public_html/. Set VITE_API_URL to this service's URL before building.

@@ -9,15 +9,24 @@ export default defineConfig({
   plugins,
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
-      "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+      "@": path.resolve(import.meta.dirname, "src"),
+      "@shared": path.resolve(import.meta.dirname, "src", "shared"),
     },
   },
-  envDir: path.resolve(import.meta.dirname),
-  root: path.resolve(import.meta.dirname, "client"),
+  // Project root is the frontend directory itself: index.html, public/ and
+  // src/ all sit here, which is the layout Vite documents and every tool
+  // expects. Previously the app was nested one level deeper in client/, so
+  // root, aliases and outDir each needed their own override to compensate.
+  root: import.meta.dirname,
+  envDir: import.meta.dirname,
+  publicDir: path.resolve(import.meta.dirname, "public"),
+  // Relative asset URLs. The app uses hash routing, so a static host needs no
+  // rewrite rules — and with "./" the build also works when uploaded into a
+  // subdirectory (e.g. Hostinger's public_html/app/) instead of only at the
+  // domain root, where absolute "/assets/..." paths would 404.
+  base: "./",
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    outDir: path.resolve(import.meta.dirname, "dist"),
     emptyOutDir: true,
   },
   server: {

@@ -1,9 +1,16 @@
 import dotenv
 import os as _os
-dotenv.load_dotenv(_os.path.join(_os.path.dirname(__file__), ".env"))
-from typing import Dict
+# VOXHIRE_SKIP_DOTENV lets tests exercise the "no API keys configured" path
+# without the developer's local .env silently supplying them.
+if not _os.getenv("VOXHIRE_SKIP_DOTENV"):
+    dotenv.load_dotenv(_os.path.join(_os.path.dirname(_os.path.dirname(__file__)), ".env"))
+from typing import Dict, Optional
+from dataclasses import dataclass, field
+import logging
 import random
 import re
+import threading
+import time
 import warnings
 from langchain_core._api.deprecation import LangChainDeprecationWarning
 from langchain_groq import ChatGroq
@@ -18,6 +25,8 @@ from langchain_openai import ChatOpenAI
 # warning instead of leaving noisy deprecation output on every request.
 warnings.filterwarnings("ignore", category=LangChainDeprecationWarning, message=".*RunnableWithMessageHistory.*")
 
+log = logging.getLogger("voxhire.agent")
+
 # Single source of truth for the Groq model id — Groq periodically retires
 # model names (this broke twice from a stale hardcoded "llama-3.3-70b-versatile"
 # in two different files), so every Groq call in the backend must import this
@@ -25,27 +34,63 @@ warnings.filterwarnings("ignore", category=LangChainDeprecationWarning, message=
 # .env if Groq retires this one too — no code change needed.
 GROQ_MODEL = _os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
-# Initialize LLM model instance with HIGHER temperature for more variety.
-# max_tokens caps completion length — the prompt already constrains responses
-# to one short remark + one short question + two label lines, so this only
-# cuts off runaway generations, never a normal reply.
-openai_llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0.9,
-    max_tokens=350,
-)
-groq_llm = ChatGroq(
-    model=GROQ_MODEL,
-    temperature=0.9,
-    max_tokens=350,
-)
-session_domains = {}
-session_topics_covered = {}  # NEW: Track covered topics per session
-session_question_count = {}  # NEW: Track question count
-session_difficulty = {}  # NEW: Track adaptive difficulty level (1-5) per session
-session_names = {}  # Candidate's typed name (authoritative over transcribed audio)
-session_total_questions = {}  # Decided interview length per session (see run_agent_turn)
-session_last_quality = {}  # Most recent STRONG/ADEQUATE/WEAK judgment per session
+OPENAI_MODEL = _os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+# Per-call ceilings. Without an explicit timeout an unresponsive provider pins a
+# worker until the client gives up — on a single free-tier instance that is the
+# whole backend, so every request behind it stalls too.
+LLM_TIMEOUT_SECONDS = float(_os.getenv("LLM_TIMEOUT_SECONDS", "45"))
+LLM_MAX_RETRIES = int(_os.getenv("LLM_MAX_RETRIES", "1"))
+
+# LLM instances are built lazily and defensively. Constructing ChatOpenAI or
+# ChatGroq raises immediately when its API key is absent, so building them at
+# import time (as this module used to) meant a missing OPENAI_API_KEY took the
+# entire backend down at boot with an opaque traceback — even though Groq alone
+# is a perfectly good configuration. Now a provider that cannot be built is
+# simply skipped, and the service starts as long as at least one key is present.
+def _build_openai_llm():
+    if not _os.getenv("OPENAI_API_KEY", "").strip():
+        return None
+    return ChatOpenAI(
+        model=OPENAI_MODEL,
+        temperature=0.9,
+        max_tokens=350,
+        timeout=LLM_TIMEOUT_SECONDS,
+        max_retries=LLM_MAX_RETRIES,
+    )
+
+def _build_groq_llm():
+    if not _os.getenv("GROQ_API_KEY", "").strip():
+        return None
+    return ChatGroq(
+        model=GROQ_MODEL,
+        temperature=0.9,
+        max_tokens=350,
+        timeout=LLM_TIMEOUT_SECONDS,
+        max_retries=LLM_MAX_RETRIES,
+    )
+
+def _try_build(name: str, builder):
+    try:
+        llm = builder()
+    except Exception as exc:  # malformed key, unreachable config, SDK change
+        log.warning("LLM provider %s unavailable: %s", name, exc)
+        return None
+    if llm is None:
+        log.info("LLM provider %s skipped (no API key configured)", name)
+    return llm
+
+openai_llm = _try_build("openai", _build_openai_llm)
+groq_llm = _try_build("groq", _build_groq_llm)
+
+if not openai_llm and not groq_llm:
+    # Deliberately a warning, not a hard failure: the service still boots so
+    # /api/check, the admin endpoints and already-stored results keep working.
+    # Only /api/chat is degraded, and it reports the misconfiguration itself.
+    log.error(
+        "No LLM provider configured — set GROQ_API_KEY and/or OPENAI_API_KEY. "
+        "/api/chat will return 503 until one is present."
+    )
 
 # Adaptive interview length: every interview is at least MIN_QUESTIONS long.
 # Past that, the interview extends one question at a time, capped at
@@ -80,8 +125,95 @@ def _looks_like_non_answer(message: str) -> bool:
         return True
     return any(phrase in cleaned for phrase in _NON_ANSWER_PHRASES)
 
-# Session store for histories
-session_store: Dict[str, InMemoryChatMessageHistory] = {}
+# ── Session state ─────────────────────────────────────────────────────────
+# All per-session interview state lives in ONE record per session, evicted on a
+# TTL. This replaces eight parallel module-level dicts (domains, topics, counts,
+# difficulty, names, totals, last-quality, history) that were only ever written
+# and never cleaned up: on a long-lived instance they grew without bound, and
+# every lookup had to defensively handle a session present in one dict but
+# missing from another. A single record makes that class of bug unrepresentable
+# and gives eviction exactly one place to happen.
+#
+# This matters concretely on Render's free tier (512MB): each session holds a
+# chat history plus topic lists, and an abandoned interview — the common case,
+# candidates close the tab — previously leaked all of it forever.
+SESSION_TTL_SECONDS = int(_os.getenv("SESSION_TTL_SECONDS", str(6 * 60 * 60)))
+MAX_TRACKED_SESSIONS = int(_os.getenv("MAX_TRACKED_SESSIONS", "500"))
+
+
+@dataclass
+class SessionState:
+    domain: str
+    history: InMemoryChatMessageHistory = field(default_factory=InMemoryChatMessageHistory)
+    topics_covered: list = field(default_factory=list)
+    question_count: int = 0
+    difficulty: int = 3          # STARTING_DIFFICULTY; set explicitly on create
+    name: Optional[str] = None
+    total_questions: int = 9     # MIN_QUESTIONS; set explicitly on create
+    last_quality: Optional[str] = None
+    # How many of each required bucket (Python/SQL) have been asked so far.
+    # Credited by the engine when it forces the topic, not inferred from the
+    # model's self-reported TOPIC line — so the quota cannot be missed because
+    # the model mislabelled or omitted a line.
+    required_covered: dict = field(default_factory=dict)
+    last_seen: float = field(default_factory=time.time)
+
+
+_sessions: Dict[str, SessionState] = {}
+_sessions_lock = threading.Lock()
+
+
+def _evict_stale_sessions(now: float) -> None:
+    """Drop sessions idle past the TTL; if still over the cap, drop oldest first.
+
+    Caller must hold _sessions_lock.
+    """
+    cutoff = now - SESSION_TTL_SECONDS
+    for sid in [s for s, st in _sessions.items() if st.last_seen < cutoff]:
+        _sessions.pop(sid, None)
+    # Hard ceiling as a backstop: a burst of sessions inside one TTL window
+    # should still not be able to exhaust memory.
+    if len(_sessions) > MAX_TRACKED_SESSIONS:
+        oldest = sorted(_sessions.items(), key=lambda kv: kv[1].last_seen)
+        for sid, _ in oldest[: len(_sessions) - MAX_TRACKED_SESSIONS]:
+            _sessions.pop(sid, None)
+
+
+def _get_or_create_session(session_id: str, domain: str | None) -> SessionState:
+    now = time.time()
+    with _sessions_lock:
+        state = _sessions.get(session_id)
+        if state is None:
+            state = SessionState(
+                domain=_normalize_domain(domain),
+                difficulty=STARTING_DIFFICULTY,
+                total_questions=MIN_QUESTIONS,
+            )
+            _sessions[session_id] = state
+        state.last_seen = now
+        # Evict after inserting, so the cap is an exact ceiling on live
+        # sessions rather than a ceiling that the new arrival then exceeds.
+        # The session just touched is the newest, so it is never the victim.
+        _evict_stale_sessions(now)
+        return state
+
+
+def end_session(session_id: str) -> None:
+    """Release a finished interview's state.
+
+    Called once the interview is evaluated — without this, completed sessions
+    stayed resident until the TTL expired, which on a small instance is the
+    difference between holding a handful of sessions and holding every session
+    since the last deploy.
+    """
+    with _sessions_lock:
+        _sessions.pop(session_id, None)
+
+
+def session_count() -> int:
+    """Live session count, surfaced by the health endpoint for monitoring."""
+    with _sessions_lock:
+        return len(_sessions)
 
 # Cap how much prior conversation is resent to the model each turn. The model
 # doesn't need the verbatim old Q&A to stay coherent — covered topics and the
@@ -91,9 +223,14 @@ session_store: Dict[str, InMemoryChatMessageHistory] = {}
 HISTORY_TURNS_TO_KEEP = 3  # keep the last 3 Q&A exchanges (6 messages)
 
 def get_session_history(session_id: str) -> InMemoryChatMessageHistory:
-    if session_id not in session_store:
-        session_store[session_id] = InMemoryChatMessageHistory()
-    history = session_store[session_id]
+    """History callback for RunnableWithMessageHistory.
+
+    Reads the history off the session record so it is evicted with the rest of
+    that session's state, rather than living in a separate dict that nothing
+    ever cleaned up.
+    """
+    state = _get_or_create_session(session_id, None)
+    history = state.history
     max_messages = HISTORY_TURNS_TO_KEEP * 2
     if len(history.messages) > max_messages:
         history.messages = history.messages[-max_messages:]
@@ -121,6 +258,126 @@ DIFFICULTY_LEVELS = {
     4: "Hard — a probing WHY/trade-off question, genuinely challenging, top-company style.",
     5: "Very hard — an expert-level, multi-layered trade-off question that would challenge a strong senior candidate.",
 }
+
+# Each technical role gets an explicit scope boundary, stating both what it
+# owns and — more importantly — what belongs to a *neighbouring* role and must
+# therefore be left alone. Without this the three technical interviews converge:
+# every one of them drifts toward generic "explain overfitting / explain A/B
+# testing" questions, because those sit plausibly inside all three topic lists.
+DOMAIN_SCOPE = {
+    "data_analytics": (
+        "SCOPE — DATA ANALYTICS: you are interviewing an ANALYST. Own the descriptive layer: "
+        "SQL, BI tools, dashboards, business metrics, cohort/funnel analysis, data quality, and "
+        "communicating findings to stakeholders. The defining question is 'what happened, and "
+        "what should the business do about it'. DO NOT ask about model training, algorithm "
+        "internals, ML theory, or LLMs — those belong to the data science and AI engineering "
+        "interviews. Statistics here is applied and interpretive (reading a test result, "
+        "choosing a metric), never derivational."
+    ),
+    "datascience": (
+        "SCOPE — DATA SCIENCE: you are interviewing a DATA SCIENTIST. Own the inferential and "
+        "predictive layer: statistical inference, experiment DESIGN, modelling, validation, "
+        "causal reasoning. The defining question is 'why is this happening, and what will happen "
+        "next'. DO NOT ask about BI tooling (Tableau/Power BI/Excel), dashboard design, or "
+        "report formatting — those belong to the data analytics interview. DO NOT ask about "
+        "LLM/RAG/agent systems — those belong to the AI engineering interview."
+    ),
+    "ai_engineer": (
+        "SCOPE — AI ENGINEERING: you are interviewing an AI ENGINEER. Own the applied LLM systems "
+        "layer: transformers, embeddings, RAG, prompting, agents, evaluation of generative "
+        "output, inference cost and latency, and shipping/operating these systems. The defining "
+        "question is 'how do you build and run a reliable system on top of a model you did not "
+        "train'. DO NOT ask classical ML theory (bias-variance, regularization maths, tree "
+        "ensembles) — that belongs to the data science interview. DO NOT ask BI/dashboard "
+        "questions — those belong to the data analytics interview."
+    ),
+}
+
+# Every technical interview must include a fixed quota of Python and SQL
+# questions. Leaving this to the topic sampler was not enough — sampling picks
+# 8 of ~23 topics per turn, so a given interview could easily finish having
+# asked neither. These quotas are scheduled and enforced by the engine (see
+# _required_slots and run_agent_turn), not merely suggested to the model.
+#
+# The questions stay conceptual and answerable out loud: this is a spoken
+# interview, so "write a query that..." is unanswerable by design. "Explain what
+# this construct does and when you would reach for it" tests the same knowledge
+# and actually works over voice.
+REQUIRED_TOPIC_QUOTAS = {
+    "data_analytics": [
+        {
+            "tag": "SQL",
+            "count": 2,
+            "topics": [
+                "SQL — joins and grain (INNER vs LEFT, what fan-out is and how a join silently duplicates rows, why row counts change)",
+                "SQL — aggregation and window functions (GROUP BY vs PARTITION BY, HAVING vs WHERE, running totals, RANK vs ROW_NUMBER, deduplicating with a window)",
+            ],
+        },
+        {
+            "tag": "Python",
+            "count": 2,
+            "topics": [
+                "Python/pandas — reshaping and joining data (merge vs concat, groupby-aggregate, pivot vs melt, why an operation returns a copy or a view)",
+                "Python/pandas — cleaning semantics (NaN vs None vs empty string, dtype surprises, why a filter silently drops rows, vectorized operations vs iterating rows)",
+            ],
+        },
+    ],
+    "datascience": [
+        {
+            "tag": "SQL",
+            "count": 2,
+            "topics": [
+                "SQL for analysis — assembling a modelling dataset (joining fact and dimension tables, choosing the grain, why a careless join leaks future information into training data)",
+                "SQL — window functions for temporal features (LAG/LEAD, rolling aggregates, point-in-time correctness, computing a label without leaking the future)",
+            ],
+        },
+        {
+            "tag": "Python",
+            "count": 2,
+            "topics": [
+                "Python for modelling — the fit/transform contract (why a scaler or encoder is fit on train only, what leaks when it is fit on the full dataset, why pipelines exist)",
+                "Python — numpy/pandas semantics that bite (broadcasting, vectorization vs loops, in-place mutation and chained-assignment surprises, memory and dtype cost on large frames)",
+            ],
+        },
+    ],
+    "ai_engineer": [
+        {
+            "tag": "SQL",
+            "count": 2,
+            "topics": [
+                "SQL for AI systems — retrieval and filtering (metadata filters alongside vector search, why pre-filtering and post-filtering give different results, joining chunks back to source documents)",
+                "SQL for AI systems — logging and evaluation (modelling a traces/evals table, aggregating quality and cost per model version, finding regressions between two releases)",
+            ],
+        },
+        {
+            "tag": "Python",
+            "count": 2,
+            "topics": [
+                "Python for LLM services — concurrency and I/O (why LLM calls are I/O-bound, async vs threads, batching, timeouts and retries with backoff, why a blocking call stalls a server)",
+                "Python for LLM services — robustness (validating and parsing model output, handling malformed JSON, retry and fallback structure, streaming responses, managing token/cost accounting)",
+            ],
+        },
+    ],
+}
+
+
+def _required_slots(total_questions: int, n_required: int) -> list:
+    """Question numbers at which a required (Python/SQL) topic should be asked.
+
+    Spread evenly rather than front-loaded, and never on Q1-Q2 — those belong to
+    the introduction and a warm-up, where a sudden "explain window functions"
+    lands badly. The final question is also left free so the interview can close
+    on something conversational.
+    """
+    if n_required <= 0:
+        return []
+    first = 3
+    last = max(first, total_questions - 1)
+    if n_required == 1:
+        return [(first + last) // 2]
+    step = (last - first) / (n_required - 1)
+    return [round(first + i * step) for i in range(n_required)]
+
 
 # Domain-specific question banks with topic tags
 DOMAIN_QUESTIONS = {
@@ -270,77 +527,63 @@ DOMAIN_QUESTIONS = {
             "How would you explain customer lifetime value to a marketing team?"
         ]
     },
-    "product": {
+    "ai_engineer": {
+        "difficulty": (
+            "The candidate is a FRESHER (entry-level AI engineer). Difficulty mix across the "
+            "interview: most questions (roughly 7 of 9) must be MID-LEVEL — clear conceptual "
+            "questions on fundamentals (e.g. what an embedding is, why RAG beats fine-tuning for "
+            "fresh facts, what temperature controls) that a well-prepared graduate can answer. "
+            "Include AT MOST 2 genuinely hard, top-company (Google/Meta/OpenAI) style questions "
+            "probing WHY and trade-offs (e.g. why attention is quadratic and what that costs you, "
+            "when chunking strategy silently destroys retrieval quality) — place these mid-to-late "
+            "in the interview, never back-to-back. Use simple realistic framings (a support "
+            "chatbot, a document Q&A system, a summarization pipeline) where natural, and keep "
+            "everything strictly verbal and theoretical: NO code writing, NO prompt text to draft "
+            "on the spot, NO math derivations to write out."
+        ),
         "topics": [
-            "Product strategy and roadmap planning",
-            "User research and customer discovery",
-            "Prioritization frameworks (RICE, MoSCoW, Kano)",
-            "Feature definition and user stories",
-            "Metrics and success measurement",
-            "Stakeholder management",
-            "A/B testing and experimentation",
-            "Competitive analysis and market positioning"
+            "Transformer architecture fundamentals (self-attention, multi-head attention, positional encoding, encoder vs decoder)",
+            "Tokenization (subword tokenizers, BPE, vocabulary size, why token counts matter for cost and context)",
+            "Embeddings (vector representations, semantic similarity, cosine similarity, embedding model selection)",
+            "Pretraining vs fine-tuning vs prompting (when each is appropriate, cost and data trade-offs)",
+            "Parameter-efficient fine-tuning concepts (LoRA, adapters, why full fine-tuning is often unnecessary)",
+            "Prompt engineering principles (zero-shot, few-shot, chain-of-thought, system vs user instructions)",
+            "Decoding and generation parameters (temperature, top-p, top-k, greedy vs sampling, determinism)",
+            "Retrieval-Augmented Generation (RAG) architecture (indexing, retrieval, reranking, generation stages)",
+            "Chunking strategies for RAG (chunk size, overlap, semantic vs fixed splitting, impact on retrieval quality)",
+            "Vector databases and search (ANN indexes, HNSW concepts, hybrid search, metadata filtering)",
+            "Hallucination (why LLMs hallucinate, detection strategies, grounding and citation techniques)",
+            "Context windows and long-context handling (truncation, summarization, lost-in-the-middle effects)",
+            "LLM evaluation (offline benchmarks, LLM-as-judge, human eval, golden datasets, regression testing)",
+            "Agents and tool use (function calling, ReAct-style loops, planning, failure modes of autonomous agents)",
+            "Multi-step orchestration concepts (chaining, routing, when an agent is overkill versus a fixed pipeline)",
+            "Guardrails and safety (prompt injection, jailbreaks, input/output filtering, PII handling)",
+            "Inference optimization (quantization, batching, KV caching, latency vs throughput vs quality trade-offs)",
+            "Cost management (token accounting, model tiering, caching, when a smaller model is the right call)",
+            "LLMOps and deployment (versioning prompts and models, monitoring, observability, drift, rollback)",
+            "Model selection trade-offs (open vs closed models, size vs latency vs quality, self-hosting considerations)",
+            "Multimodal and speech concepts (vision-language models, speech-to-text, cross-modal embeddings)",
+            "Real-world AI system scenarios (support chatbots, document Q&A, summarization pipelines, semantic search)"
         ],
         "sample_starters": [
-            "How do you prioritize features on a product roadmap?",
-            "Explain how you would conduct user research for a new feature",
-            "What metrics would you use to measure product success?",
-            "How do you handle conflicting stakeholder requirements?",
-            "Describe the RICE prioritization framework",
-            "How would you analyze a competitor's product?",
-            "What's your approach to writing user stories?"
-        ]
-    },
-    "frontend": {
-        "topics": [
-            "HTML/CSS fundamentals (box model, specificity, flexbox, grid)",
-            "JavaScript core concepts (closures, event loop, promises, async/await)",
-            "React concepts (virtual DOM, hooks, state management, component lifecycle)",
-            "Browser performance (lazy loading, code splitting, rendering optimization)",
-            "Accessibility (WCAG, ARIA, semantic HTML)",
-            "Responsive design and media queries",
-            "TypeScript fundamentals (types, interfaces, generics)",
-            "Testing (unit tests, integration tests, testing-library)",
-            "Web APIs (fetch, localStorage, service workers)",
-            "Build tools and bundlers (Vite, Webpack concepts)"
-        ],
-        "sample_starters": [
-            "Explain the difference between flexbox and CSS Grid",
-            "What is the JavaScript event loop and how does it work?",
-            "How do React hooks differ from class component lifecycle methods?",
-            "What strategies do you use to improve frontend performance?",
-            "Explain the concept of closures in JavaScript",
-            "How would you make a web application accessible?",
-            "What is the difference between == and === in JavaScript?",
-            "How does the virtual DOM work in React?",
-            "What is TypeScript and why would you use it over JavaScript?",
-            "How do you handle state management in a large React application?"
-        ]
-    },
-    "devops": {
-        "topics": [
-            "CI/CD pipelines (build, test, deploy stages)",
-            "Containerization (Docker concepts, images, containers, volumes)",
-            "Container orchestration (Kubernetes basics, pods, services, deployments)",
-            "Infrastructure as Code (Terraform, Ansible concepts)",
-            "Cloud platforms (AWS/GCP/Azure core services)",
-            "Monitoring and observability (metrics, logs, traces, alerting)",
-            "Linux fundamentals (processes, networking, file permissions)",
-            "Networking concepts (DNS, TCP/IP, load balancers, reverse proxies)",
-            "Security practices (secrets management, least privilege, vulnerability scanning)",
-            "Incident response and on-call practices"
-        ],
-        "sample_starters": [
-            "Explain the difference between a container and a virtual machine",
-            "What is CI/CD and how would you design a pipeline for a web app?",
-            "How does Kubernetes manage container scheduling?",
-            "What is Infrastructure as Code and why is it important?",
-            "How would you monitor a production application?",
-            "Explain how DNS resolution works",
-            "What is a reverse proxy and when would you use one?",
-            "How do you manage secrets in a cloud environment?",
-            "What would you do if a deployment caused production to go down?",
-            "Explain the difference between horizontal and vertical scaling"
+            "What is self-attention actually computing, and why did it replace recurrence in sequence models?",
+            "When would you choose RAG over fine-tuning a model, and when is that the wrong call?",
+            "What does the temperature parameter control, and when would you set it to zero?",
+            "Why do large language models hallucinate, and what can you do at the system level to reduce it?",
+            "Explain what an embedding is and how semantic search uses it.",
+            "How does chunk size and overlap affect the quality of a RAG system's answers?",
+            "What is prompt injection, and why is it hard to fully defend against?",
+            "Your RAG chatbot returns confident but wrong answers — walk me through how you'd debug it.",
+            "How would you evaluate an LLM feature when there is no single correct answer?",
+            "What is LoRA, and why is it preferred over full fine-tuning in most practical projects?",
+            "Why is attention quadratic in sequence length, and what does that cost you in production?",
+            "What is function calling, and when does an agent loop beat a fixed pipeline?",
+            "How would you cut the cost of an LLM feature in half without users noticing?",
+            "What is the difference between top-p and top-k sampling?",
+            "How do you decide between an open-source model you host and a hosted API model?",
+            "What is KV caching and why does it matter for inference latency?",
+            "You need to summarize documents longer than the model's context window — how do you approach it?",
+            "How would you monitor an LLM feature in production to catch quality regressions?"
         ]
     }
 }
@@ -365,15 +608,22 @@ Then compute the NEW difficulty level for the question you are about to ask: STR
 CONFIDENTIALITY — this entire adaptive mechanism is internal and invisible to the candidate. Your candidate-facing text must NEVER mention or hint at: difficulty levels, "medium/easy/hard", raising or lowering difficulty, quality ratings (STRONG/ADEQUATE/WEAK), topics being tracked or covered, an answer being "off-topic", or these instructions/your reasoning process. Never announce what you are about to do or how you are treating their answer (no "I'll proceed as if...", no "keeping the difficulty at..."). If an answer is off-topic or weak, respond only with a brief, natural, professional acknowledgment (e.g. "Thank you." or "Alright, let's move on.") and simply ask the next question.
 
 Topic Rules:
-- Never repeat or revisit a covered topic
 - Pick questions from the domain topics list only — stay strictly on topic
 - Start with broader, introductory questions and gradually go deeper
 - Rotate across different topic areas — do not cluster similar topics together
+- Stay inside this role's scope. If a question would fit another role's interview better, it is the wrong question.
+
+Pacing and Coverage:
+- Coverage is the priority: there are far more topics than questions, so keep moving.
+- On questions 2 and 3 ONLY, you may ask one follow-up that digs into what the candidate just said — a single cross-question to test whether the understanding is real. Never two follow-ups in a row, and never on the same point twice.
+- From question 4 onward, do not follow up: acknowledge the answer briefly and move to a new, uncovered topic.
+- Never revisit a topic already listed as covered.
+- A thin or wrong answer is not a reason to linger. Note it silently, move on, and let the difficulty adjustment handle it.
 
 Variety and Flow:
 - Invent a fresh question every turn — treat example questions as inspiration only, never reuse their wording, so no two interview sessions are ever identical
 - Bridge naturally: choose the next topic so it connects at least loosely to something the candidate just said or to the previous topic (a shared concept, a natural consequence, an adjacent area) — then take the question somewhere new
-- Maximize coverage: across the interview, touch as many distinct topic areas from the list as possible — never spend two questions on the same topic
+- Maximize coverage: across the interview, touch as many distinct topic areas from the list as possible — apart from the single early follow-up allowed above, never spend two questions on the same topic
 
 Question Style:
 - One focused question per turn, 1–2 sentences max
@@ -396,98 +646,133 @@ prompt = ChatPromptTemplate.from_messages([
     MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}"),
 ])
-openai_agent = prompt | openai_llm
-groq_agent = prompt | groq_llm
+def _with_memory(llm):
+    return RunnableWithMessageHistory(
+        prompt | llm,
+        get_session_history,
+        input_messages_key="input",
+        history_messages_key="chat_history",
+    )
 
-# Wrap with memory/history
-openai_agent_with_memory = RunnableWithMessageHistory(
-    openai_agent,
-    get_session_history,
-    input_messages_key="input",
-    history_messages_key="chat_history",
-)
 
-groq_agent_with_memory = RunnableWithMessageHistory(
-    groq_agent,
-    get_session_history,
-    input_messages_key="input",
-    history_messages_key="chat_history",
-)
+# Ordered provider chain, built from whichever providers actually initialized.
+# Only configured providers appear, so a Groq-only deployment (the natural
+# free-tier setup — Groq has a free API tier, OpenAI does not) no longer pays a
+# guaranteed-to-fail OpenAI round trip before every single question.
+#
+# LLM_PROVIDER_ORDER overrides the preference, e.g. "groq,openai" to lead with
+# Groq for latency, or "groq" to pin one provider.
+_LLM_REGISTRY = {"openai": openai_llm, "groq": groq_llm}
+_DEFAULT_ORDER = ["openai", "groq"]
+_requested_order = [
+    n.strip().lower()
+    for n in _os.getenv("LLM_PROVIDER_ORDER", ",".join(_DEFAULT_ORDER)).split(",")
+    if n.strip()
+]
+_PROVIDERS = [
+    (name, _with_memory(_LLM_REGISTRY[name]))
+    for name in _requested_order
+    if _LLM_REGISTRY.get(name) is not None
+]
+
+if _PROVIDERS:
+    log.info("LLM providers active, in order: %s", ", ".join(n for n, _ in _PROVIDERS))
+
+
+class NoLLMProviderError(RuntimeError):
+    """Raised when no LLM provider is configured — surfaced by the API as 503."""
+
+
 def safe_invoke_agent(payload, session_id):
-    try:
-        # Try OpenAI first
-        return openai_agent_with_memory.invoke(
-            payload,
-            config={"configurable": {"session_id": session_id}}
-        )
-    
-    except Exception as e:
-        error_msg = str(e).lower()
-        
-        # Detect rate limit / quota errors
-        if any(k in error_msg for k in [
-            "quota", "rate limit", "resource exhausted", "429"
-        ]):
-            print("WARNING: OpenAI LLM limit exceeded. Switching to Groq...")
-            
-            return groq_agent_with_memory.invoke(
-                payload,
-                config={"configurable": {"session_id": session_id}}
-            )
-        
-        # If it's some other error, raise it
-        raise e
+    """Invoke the first provider that succeeds, falling through on failure.
 
+    The previous version fell back to Groq only when OpenAI's error text matched
+    a quota/rate-limit keyword, so an invalid or revoked OPENAI_API_KEY (a 401,
+    with none of those words in it) aborted the interview outright even with a
+    perfectly healthy Groq key sitting right there. Any provider failure now
+    advances to the next provider; only exhausting all of them raises.
+    """
+    if not _PROVIDERS:
+        raise NoLLMProviderError(
+            "No LLM provider is configured. Set GROQ_API_KEY and/or OPENAI_API_KEY."
+        )
+
+    last_error: Exception | None = None
+    for name, chain in _PROVIDERS:
+        try:
+            return chain.invoke(payload, config={"configurable": {"session_id": session_id}})
+        except Exception as exc:
+            last_error = exc
+            log.warning("LLM provider %s failed (%s): %s", name, type(exc).__name__, exc)
+
+    raise last_error  # type: ignore[misc]
+
+
+# The interview supports exactly four domains. Anything else is rejected at the
+# door (see _normalize_domain) rather than silently falling through to an empty
+# topic list, which would leave the model to invent an unguided interview.
+HR_DOMAIN = "hr(humain recourse) + managerial"
 
 _DOMAIN_ALIASES = {
+    "hr": HR_DOMAIN,
+    "hr / managerial": HR_DOMAIN,
+    "hr/managerial": HR_DOMAIN,
+    "human resources": HR_DOMAIN,
+    "managerial": HR_DOMAIN,
+    HR_DOMAIN: HR_DOMAIN,
     "data analytics": "data_analytics",
     "data_analytics": "data_analytics",
+    "data analyst": "data_analytics",
+    "analytics": "data_analytics",
     "datascience": "datascience",
     "data science": "datascience",
-    "frontend": "frontend",
-    "front-end": "frontend",
-    "front end": "frontend",
-    "product": "product",
-    "devops": "devops",
-    "dev ops": "devops",
-    "hr": "hr(humain recourse) + managerial",
-    "hr / managerial": "hr(humain recourse) + managerial",
-    "hr(humain recourse) + managerial": "hr(humain recourse) + managerial",
+    "data_science": "datascience",
+    "data scientist": "datascience",
+    "ai_engineer": "ai_engineer",
+    "ai engineer": "ai_engineer",
+    "ai-engineer": "ai_engineer",
+    "aiengineer": "ai_engineer",
+    "ml engineer": "ai_engineer",
+    "machine learning engineer": "ai_engineer",
 }
 
+# Fallback for an unrecognized role. HR is the safe default: it is the one
+# domain that makes sense for any candidate regardless of their background.
+DEFAULT_DOMAIN = HR_DOMAIN
+
 def _normalize_domain(domain: str) -> str:
-    return _DOMAIN_ALIASES.get(domain.lower().strip(), domain.lower().strip())
+    key = (domain or "").lower().strip()
+    resolved = _DOMAIN_ALIASES.get(key)
+    if resolved is None:
+        print(f"WARNING: unsupported domain {domain!r} — falling back to {DEFAULT_DOMAIN!r}")
+        return DEFAULT_DOMAIN
+    return resolved
 
 def run_agent_turn(message: str, session_id: str, domain: str | None = None, name: str | None = None):
-    # Initialize session tracking
-    if session_id not in session_domains and domain:
-        session_domains[session_id] = _normalize_domain(domain)
-        session_topics_covered[session_id] = []
-        session_question_count[session_id] = 0
-        session_difficulty[session_id] = STARTING_DIFFICULTY
+    # One record per session, created on first turn and evicted on a TTL. A
+    # request arriving without a domain still gets a valid (fallback) one and
+    # initialized counters rather than failing on the first turn.
+    state = _get_or_create_session(session_id, domain)
 
     # The typed name is authoritative over anything the model might infer from
     # the transcribed "introduce yourself" answer — speech-to-text frequently
     # mangles non-English names. Store it once; later calls omit it.
     if name and name.strip():
-        session_names[session_id] = name.strip()
+        state.name = name.strip()
 
-    # Get domain for this session
-    domain_text = session_domains.get(session_id, "general")
-    print("Domain for session:", domain_text)
+    domain_text = state.domain
 
-    # Increment question count
-    session_question_count[session_id] += 1
-    current_q = session_question_count[session_id]
+    state.question_count += 1
+    current_q = state.question_count
 
     # Get domain-specific context
-    domain_info = DOMAIN_QUESTIONS.get(domain_text, {})
+    domain_info = DOMAIN_QUESTIONS[domain_text]
     all_topics = domain_info.get("topics", [])
 
     # Track covered topics (moved up so we can filter the topics list below —
     # already-covered topics are dead weight in the prompt since the model is
     # told never to revisit them anyway)
-    covered = session_topics_covered.get(session_id, [])
+    covered = state.topics_covered
     covered_str = ", ".join(covered) if covered else "None yet"
     uncovered_topics = [t for t in all_topics if t.split("(")[0].strip() not in covered]
 
@@ -507,6 +792,9 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
     difficulty = domain_info.get("difficulty", DEFAULT_DIFFICULTY)
     if difficulty:
         domain_context += f"DIFFICULTY CALIBRATION:\n{difficulty}\n\n"
+    scope = DOMAIN_SCOPE.get(domain_text)
+    if scope:
+        domain_context += f"{scope}\n\n"
     domain_context += f"AVAILABLE TOPICS FOR {domain_text.upper()}:\n"
     for i, topic in enumerate(topics_list, 1):
         domain_context += f"{i}. {topic}\n"
@@ -523,7 +811,7 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
 
     # Adaptive difficulty: level going into this turn, before we know how the
     # candidate's latest answer scores (that's judged by the model this turn).
-    prior_level = session_difficulty.get(session_id, STARTING_DIFFICULTY)
+    prior_level = state.difficulty
 
     # Adaptive interview length: re-evaluated every turn once we're approaching
     # the current decided total. Combines the most recently LLM-judged quality
@@ -531,11 +819,54 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
     # settled performance — never this turn's not-yet-existent answer) with a
     # deterministic check on the raw message just submitted, since the model's
     # self-judgment alone proved unreliable (see _looks_like_non_answer above).
-    decided_total = session_total_questions.get(session_id, MIN_QUESTIONS)
+    decided_total = state.total_questions
     if current_q + 1 >= decided_total and decided_total < MAX_QUESTIONS:
-        if session_last_quality.get(session_id) != "WEAK" and not _looks_like_non_answer(message):
+        if state.last_quality != "WEAK" and not _looks_like_non_answer(message):
             decided_total = min(MAX_QUESTIONS, decided_total + 1)
-    session_total_questions[session_id] = decided_total
+    state.total_questions = decided_total
+
+    # ── Required Python/SQL quota ─────────────────────────────────────────
+    # The question about to be generated (Q1 is hardcoded on the frontend, so
+    # this call produces question current_q + 1).
+    asked_number = min(current_q + 1, decided_total)
+    quotas = REQUIRED_TOPIC_QUOTAS.get(domain_text, [])
+    total_required = sum(b["count"] for b in quotas)
+    done_required = sum(state.required_covered.get(b["tag"], 0) for b in quotas)
+    forced_topic = None
+    forced_tag = None
+
+    if quotas and done_required < total_required:
+        slots = _required_slots(decided_total, total_required)
+        # How many quota slots the interview has already reached.
+        due = sum(1 for slot in slots if slot <= asked_number)
+        questions_left = max(0, decided_total - asked_number)
+        remaining_required = total_required - done_required
+        # Ask now if a scheduled slot has come due, or if the interview is
+        # running out of room to fit what is still owed. The second condition
+        # is the guarantee: the quota is always met before the interview ends,
+        # even when the adaptive length lands short.
+        if due > done_required or remaining_required > questions_left:
+            for bucket in quotas:
+                used = state.required_covered.get(bucket["tag"], 0)
+                if used < bucket["count"]:
+                    forced_topic = bucket["topics"][used]
+                    forced_tag = bucket["tag"]
+                    break
+
+    if forced_topic:
+        # Credit it here rather than trusting the returned TOPIC line.
+        state.required_covered[forced_tag] = state.required_covered.get(forced_tag, 0) + 1
+        domain_context += (
+            f"\n\nMANDATORY TOPIC FOR THIS QUESTION — this overrides the topic list above.\n"
+            f"Ask exactly one {forced_tag} question on: {forced_topic}\n"
+            f"Pitch it at MEDIUM difficulty: a clear, practical question a well-prepared "
+            f"fresher can answer out loud. It must be conceptual and spoken — ask what "
+            f"something does, why it behaves that way, or which approach they would choose "
+            f"and why. NEVER ask them to write, dictate, or recite code or a query.\n"
+            f"Write it as a natural interview question. Do not mention that it was required, "
+            f"and still end your reply with the QUALITY: and TOPIC: lines as normal "
+            f"(use TOPIC: {forced_tag}).\n"
+        )
 
     # Create system prompt with session context.
     # The first question ("Introduce yourself.") is hardcoded on the frontend,
@@ -551,7 +882,7 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
     
     system_prompt += f"\n\nSTRICT DOMAIN: {domain_text}. Ask ONLY {domain_text} questions. Ignore off-topic responses."
 
-    candidate_name = session_names.get(session_id)
+    candidate_name = state.name
     if candidate_name:
         system_prompt += (
             f"\n\nCANDIDATE NAME: The candidate's name is exactly \"{candidate_name}\" (as they "
@@ -586,14 +917,14 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
     # word, which would otherwise leak into the candidate-facing text.
     response_text = re.sub(r"\n?\s*QUALITY:.*$", "", response_text, flags=re.MULTILINE | re.IGNORECASE).strip()
 
-    session_last_quality[session_id] = quality
+    state.last_quality = quality
 
     if quality == "STRONG":
-        session_difficulty[session_id] = min(5, prior_level + 1)
+        state.difficulty = min(5, prior_level + 1)
     elif quality == "WEAK":
-        session_difficulty[session_id] = max(1, prior_level - 1)
+        state.difficulty = max(1, prior_level - 1)
     else:
-        session_difficulty[session_id] = prior_level
+        state.difficulty = prior_level
 
     # The model declares its chosen topic on a trailing "TOPIC: ..." line;
     # record it for the no-repeat rule and strip it from the candidate-facing text.
@@ -601,7 +932,7 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
     if topic_match:
         chosen_topic = topic_match.group(1).split("(")[0].strip()
         if chosen_topic and chosen_topic not in covered:
-            session_topics_covered[session_id].append(chosen_topic)
+            state.topics_covered.append(chosen_topic)
     # Always strip a TOPIC:-prefixed line from the candidate view, matching
     # the same defensive handling as QUALITY: above, even if it had no usable
     # value (falls through to the keyword heuristic below in that case).
@@ -613,12 +944,14 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
             topic_keywords = topic.split('(')[0].strip().lower()
             if any(keyword in lowered for keyword in topic_keywords.split()):
                 if topic not in covered:
-                    session_topics_covered[session_id].append(topic.split('(')[0].strip())
+                    state.topics_covered.append(topic.split('(')[0].strip())
                     break
 
-    print(f"Question {current_q}: Covered topics so far: {session_topics_covered[session_id]}")
-    print(f"Answer quality: {quality} | Difficulty {prior_level} -> {session_difficulty[session_id]}")
-    print(f"Interview length: {min(current_q + 1, decided_total)} of {decided_total} (min {MIN_QUESTIONS}, max {MAX_QUESTIONS})")
+    log.info(
+        "session=%s domain=%s q=%d/%d quality=%s difficulty=%d->%d topics=%d",
+        session_id, domain_text, min(current_q + 1, decided_total), decided_total,
+        quality, prior_level, state.difficulty, len(state.topics_covered),
+    )
 
     return {
         "question": response_text,

@@ -1,6 +1,11 @@
 # Documentation
+# Ignoring every *.md meant no new documentation could be committed without
+# -f, which is why docs were scattered and half-tracked. Keep README and the
+# docs/ tree; ignore scratch notes wherever they land.
 *.md
 !README.md
+!docs/**/*.md
+!**/README.md
 
 # Python
 __pycache__/
@@ -68,6 +73,7 @@ backend/interview_log.csv*.bak
 backend/interview_log.csv.tmp
 backend/.tmp/
 backend/session_store.json
+backend/sheet_dead_letter.jsonl
 backend/invite_store.json
 
 # OS Files
@@ -106,3 +112,13 @@ coverage/
 .AppleDouble
 .LSOverride
 backend/eval_store.json
+
+# Build output (frontend now emits to dist/ directly, not dist/public/)
+frontend/dist/
+backend/.pytest_cache/
+backend/app/__pycache__/
+
+# Internal implementation notes — confidential, never committed
+akshat.docx
+akshat.docs
+*.docx
