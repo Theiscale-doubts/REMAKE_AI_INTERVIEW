@@ -681,6 +681,19 @@ function InterviewPage({
 
   const roleTitle = roleLabel(role);
 
+  // Progress is deliberately monotonic. The interview length is adaptive and
+  // decided server-side, so a raw questionCount/totalQuestions bar slid
+  // BACKWARDS the moment the interview extended (question 9 of 9 is 100%, then
+  // the total becomes 10 and the same answer is suddenly 90%). Keeping the
+  // high-water mark means the bar only ever advances, and it never discloses
+  // how many questions remain — which the candidate is not told by design.
+  const progressHighWater = useRef(0);
+  progressHighWater.current = Math.max(
+    progressHighWater.current,
+    Math.min(96, ((questionCount + 1) / Math.max(totalQuestions, 1)) * 100),
+  );
+  const progressPct = interviewComplete ? 100 : progressHighWater.current;
+
  
   const showCustomAlert = (message: string) => {
     console.warn("Alert:", message);
@@ -1256,7 +1269,7 @@ function InterviewPage({
             <div
               className="h-full transition-all duration-700 ease-out"
               style={{
-                width: `${((questionCount + 1) / totalQuestions) * 100}%`,
+                width: `${progressPct}%`,
                 background: "linear-gradient(90deg,#6E0F1E,#B11226)",
               }}
             />
@@ -1279,7 +1292,7 @@ function InterviewPage({
                   <div className="px-5 sm:px-8 pt-6 sm:pt-8 pb-6 sm:pb-7">
                     <div className="flex items-center gap-3 mb-5">
                       <span className="inline-flex items-center gap-2 rounded-full border border-[rgba(177,18,38,.4)] bg-[rgba(177,18,38,.08)] px-3.5 py-1.5 text-[11.5px] font-semibold text-[#E05860] tabular-nums tracking-[0.04em]">
-                        QUESTION {questionCount + 1} OF {totalQuestions}
+                        QUESTION {questionCount + 1}
                       </span>
                       <span className="text-xs text-txt-low">Voice answer</span>
                     </div>

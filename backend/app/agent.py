@@ -105,6 +105,15 @@ if not openai_llm and not groq_llm:
 MIN_QUESTIONS = 9
 MAX_QUESTIONS = 15
 
+# Net tally the candidate must hold for the interview to run past MIN_QUESTIONS.
+# 1 means "at least one more STRONG answer than WEAK ones so far" — an interview
+# of uniformly ADEQUATE answers sits at 0 and ends at MIN_QUESTIONS.
+EXTENSION_MIN_PERFORMANCE = 1
+# Bounds on the tally. The ceiling keeps it responsive to a late decline; the
+# floor stops a bad start from being mathematically impossible to recover from.
+PERFORMANCE_CEILING = 3
+PERFORMANCE_FLOOR = -3
+
 # The QUALITY self-judgment turned out unreliable on its own too — testing
 # showed the model defaults to ADEQUATE even for bare "I don't know"/"skip"
 # non-answers, so extension would trigger for a struggling candidate just as
@@ -151,6 +160,11 @@ class SessionState:
     name: Optional[str] = None
     total_questions: int = 9     # MIN_QUESTIONS; set explicitly on create
     last_quality: Optional[str] = None
+    # Running performance tally across the whole interview: +1 per STRONG
+    # answer, -1 per WEAK one, and -1 for a deterministic non-answer. Clamped
+    # so it stays responsive — a candidate who was excellent early cannot bank
+    # enough credit to keep extending through a collapse at the end.
+    performance: int = 0
     # How many of each required bucket (Python/SQL) have been asked so far.
     # Credited by the engine when it forces the topic, not inferred from the
     # model's self-reported TOPIC line — so the quota cannot be missed because
@@ -813,15 +827,24 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
     # candidate's latest answer scores (that's judged by the model this turn).
     prior_level = state.difficulty
 
-    # Adaptive interview length: re-evaluated every turn once we're approaching
-    # the current decided total. Combines the most recently LLM-judged quality
-    # (from the answer already judged, so this is always based on real,
-    # settled performance — never this turn's not-yet-existent answer) with a
-    # deterministic check on the raw message just submitted, since the model's
-    # self-judgment alone proved unreliable (see _looks_like_non_answer above).
+    # Adaptive interview length. Extending past MIN_QUESTIONS requires
+    # DEMONSTRATED STRENGTH, not merely the absence of failure.
+    #
+    # The previous gate was "the last answer wasn't WEAK", which in practice
+    # extended almost every interview to the maximum: models are reluctant to
+    # label an answer WEAK and default to ADEQUATE, so a candidate giving
+    # entirely mediocre answers cleared the bar every turn and sat through 15
+    # questions. Requiring a net-positive tally instead means a wholly ADEQUATE
+    # interview scores 0 and correctly ends at MIN_QUESTIONS, while a candidate
+    # who is genuinely performing well earns the extra questions.
     decided_total = state.total_questions
     if current_q + 1 >= decided_total and decided_total < MAX_QUESTIONS:
-        if state.last_quality != "WEAK" and not _looks_like_non_answer(message):
+        going_well = (
+            state.performance >= EXTENSION_MIN_PERFORMANCE
+            and state.last_quality != "WEAK"
+            and not _looks_like_non_answer(message)
+        )
+        if going_well:
             decided_total = min(MAX_QUESTIONS, decided_total + 1)
     state.total_questions = decided_total
 
@@ -920,11 +943,30 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
     state.last_quality = quality
 
     if quality == "STRONG":
+        state.performance += 1
         state.difficulty = min(5, prior_level + 1)
     elif quality == "WEAK":
+        state.performance -= 1
         state.difficulty = max(1, prior_level - 1)
     else:
+        # ADEQUATE decays the tally one step toward zero rather than holding it.
+        # Without decay a single STRONG answer early on kept the tally positive
+        # for the rest of the interview, so one good moment in an otherwise
+        # mediocre performance still bought every extra question. Extending now
+        # requires sustained quality, not one high point.
+        if state.performance > 0:
+            state.performance -= 1
+        elif state.performance < 0:
+            state.performance += 1
         state.difficulty = prior_level
+
+    # A deterministic non-answer costs a point regardless of how the model rated
+    # it — testing showed models happily call "skip this" ADEQUATE, which is
+    # exactly the case this tally exists to catch.
+    if _looks_like_non_answer(message):
+        state.performance -= 1
+
+    state.performance = max(PERFORMANCE_FLOOR, min(PERFORMANCE_CEILING, state.performance))
 
     # The model declares its chosen topic on a trailing "TOPIC: ..." line;
     # record it for the no-repeat rule and strip it from the candidate-facing text.
@@ -948,9 +990,9 @@ def run_agent_turn(message: str, session_id: str, domain: str | None = None, nam
                     break
 
     log.info(
-        "session=%s domain=%s q=%d/%d quality=%s difficulty=%d->%d topics=%d",
+        "session=%s domain=%s q=%d/%d quality=%s difficulty=%d->%d perf=%d topics=%d",
         session_id, domain_text, min(current_q + 1, decided_total), decided_total,
-        quality, prior_level, state.difficulty, len(state.topics_covered),
+        quality, prior_level, state.difficulty, state.performance, len(state.topics_covered),
     )
 
     return {

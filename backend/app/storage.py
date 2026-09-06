@@ -324,6 +324,38 @@ def _sheet_row_index(sheet, session_id: str) -> int | None:
     return None
 
 
+def _next_free_row(sheet) -> int:
+    """First row with no session id in column A.
+
+    Deliberately NOT sheet.append_row(). gspread's append infers the table's
+    extent from whatever data the sheet already contains, and a sheet carrying
+    legacy rows whose only populated cells sit in the middle columns (H-L, say,
+    from an older schema) makes it conclude the table STARTS at column H. It
+    then appends there, writing every field seven columns to the right of where
+    the header says it belongs — silently, and reporting success.
+
+    That is exactly what happened in production: session ids landed under
+    TabSwitches, so _sheet_row_index (which reads column A) never found an
+    existing session and every single answer appended a brand-new row.
+
+    Anchoring on column A instead makes the position explicit and immune to
+    whatever junk the rest of the sheet holds.
+    """
+    column_a = sheet.col_values(1)
+    return len(column_a) + 1
+
+
+def _write_row(sheet, idx: int, values: list) -> None:
+    """Write one full session row at `idx`, anchored at column A."""
+    # Grow the grid if the target row is past the end, otherwise the API
+    # rejects the range.
+    if idx > sheet.row_count:
+        sheet.resize(rows=idx + 50)
+    if sheet.col_count < len(CSV_HEADERS):
+        sheet.resize(cols=len(CSV_HEADERS))
+    sheet.update(range_name=f"A{idx}", values=[values])
+
+
 def _ensure_sheet_headers(sheet) -> None:
     """Make row 1 match CSV_HEADERS.
 
@@ -336,7 +368,8 @@ def _ensure_sheet_headers(sheet) -> None:
     """
     existing = sheet.row_values(1)
     if not existing:
-        sheet.append_row(CSV_HEADERS)
+        # Anchored write, not append_row — same table-inference hazard.
+        sheet.update(range_name="A1", values=[CSV_HEADERS])
         return
     if existing == CSV_HEADERS:
         return
@@ -367,9 +400,8 @@ def _sync_sheet_now(row: dict, username="Interview") -> str:
         values = [row.get(h, "") for h in CSV_HEADERS]
         idx = _sheet_row_index(sheet, row.get("Session_id", ""))
         if idx is None:
-            sheet.append_row(values)
-        else:
-            sheet.update(range_name=f"A{idx}", values=[values])
+            idx = _next_free_row(sheet)
+        _write_row(sheet, idx, values)
         _sheets_status.update(reachable=True, detail="last write succeeded")
         return "data stored"
     except Exception as e:
@@ -520,20 +552,6 @@ def flush_sync_queue(timeout: float = 10.0) -> int:
                 _to_dead_letter(item["row"], "not flushed before shutdown")
             _pending_writes.clear()
     return remaining
-
-
-def add_values(new_row, username="Interview"):
-    """Append a raw row. Retained for backwards compatibility only — the
-    per-session flow goes through save_qa_tool/record_score instead."""
-    if _creds is None:
-        return "Google Sheets not configured — skipped."
-    try:
-        sheet = _get_sheet(username)
-        _ensure_sheet_headers(sheet)
-        sheet.append_row([_sheet_safe(v) for v in new_row])
-        return "data stored"
-    except Exception as e:
-        return f"Failed to Add values: {str(e)}"
 
 
 def save_qa_tool(

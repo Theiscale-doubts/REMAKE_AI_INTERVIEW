@@ -49,6 +49,7 @@ interface InterviewResult {
   name?: string;
   email?: string;
   role?: string;
+  questions_answered?: number;
   tabSwitches?: number;
   faceLostCount?: number;
   faceLostSeconds?: number;
@@ -601,7 +602,7 @@ export default function Results({
               </div>
               <div className="px-4 py-3 rounded-xl border border-hairline bg-[rgba(5,5,5,.5)] flex items-center gap-3">
                 <ListOrdered className="h-3.5 w-3.5 text-txt-low flex-shrink-0" />
-                <span className="text-txt-mid text-[13px]">Questions: {totalQuestions}</span>
+                <span className="text-txt-mid text-[13px]">Questions: {result?.questions_answered || totalQuestions}</span>
               </div>
               <div className="px-4 py-3 rounded-xl border border-hairline bg-[rgba(5,5,5,.5)] flex items-center gap-3">
                 <CalendarClock className="h-3.5 w-3.5 text-txt-low flex-shrink-0" />

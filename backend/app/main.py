@@ -438,6 +438,10 @@ class InterviewResult(BaseModel):
     name: str = ""
     email: str = ""
     role: str = ""
+    # How many questions this interview actually ran to. The length is adaptive
+    # (9-15), so the report cannot assume a fixed number — the frontend was
+    # hardcoding 9 and mislabelling every extended interview.
+    questions_answered: int = 0
     tab_switches: int = 0
     face_lost_count: int = 0
     face_lost_seconds: int = 0
@@ -1100,6 +1104,7 @@ def _build_result(log_rows: list, first_entry: dict, score: float, feedback: str
         name=str(first_entry.get("Name") or ""),
         email=str(first_entry.get("Email") or ""),
         role=str(first_entry.get("Role") or ""),
+        questions_answered=len(log_rows),
         tab_switches=_final("TabSwitches"),
         face_lost_count=_final("FaceLostCount"),
         face_lost_seconds=_final("FaceLostSeconds"),
