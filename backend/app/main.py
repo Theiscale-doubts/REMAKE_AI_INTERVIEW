@@ -443,6 +443,7 @@ class InterviewResult(BaseModel):
     # hardcoding 9 and mislabelling every extended interview.
     questions_answered: int = 0
     tab_switches: int = 0
+    copy_attempts: int = 0
     face_lost_count: int = 0
     face_lost_seconds: int = 0
     multiple_faces_count: int = 0
@@ -463,6 +464,7 @@ class SaveRequest(BaseModel):
     # Proctoring counters are client-reported and therefore untrusted; bound
     # them so a forged payload cannot store absurd values in the report.
     tab_switches: int | None = Field(default=None, ge=0, le=100_000)
+    copy_attempts: int | None = Field(default=None, ge=0, le=100_000)
     face_lost_count: int | None = Field(default=None, ge=0, le=100_000)
     face_lost_seconds: int | None = Field(default=None, ge=0, le=100_000)
     multiple_faces_count: int | None = Field(default=None, ge=0, le=100_000)
@@ -789,6 +791,7 @@ def save_endpoint(request: SaveRequest, http_request: Request):
                 "Email": request.email or "",
                 "Role": request.role or "",
                 "TabSwitches": request.tab_switches or 0,
+                "CopyAttempts": request.copy_attempts or 0,
                 "FaceLostCount": request.face_lost_count or 0,
                 "FaceLostSeconds": request.face_lost_seconds or 0,
                 "MultipleFacesCount": request.multiple_faces_count or 0,
@@ -812,6 +815,7 @@ def save_endpoint(request: SaveRequest, http_request: Request):
             request.tab_switches, request.face_lost_count, request.face_lost_seconds,
             request.multiple_faces_count, request.movement_events,
             request.photo if _valid_photo(request.photo) else None,
+            copy_attempts=request.copy_attempts,
         )
     except Exception as exc:
         log.warning("Durable save failed for session %s: %s", request.session_id, exc)
@@ -1106,6 +1110,7 @@ def _build_result(log_rows: list, first_entry: dict, score: float, feedback: str
         role=str(first_entry.get("Role") or ""),
         questions_answered=len(log_rows),
         tab_switches=_final("TabSwitches"),
+        copy_attempts=_final("CopyAttempts"),
         face_lost_count=_final("FaceLostCount"),
         face_lost_seconds=_final("FaceLostSeconds"),
         multiple_faces_count=_final("MultipleFacesCount"),

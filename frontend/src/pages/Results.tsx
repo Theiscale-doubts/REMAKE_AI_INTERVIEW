@@ -52,6 +52,7 @@ interface InterviewResult {
   role?: string;
   questions_answered?: number;
   tabSwitches?: number;
+  copyAttempts?: number;
   faceLostCount?: number;
   faceLostSeconds?: number;
   multipleFacesCount?: number;
@@ -111,6 +112,7 @@ export default function Results({
           email: data.email || "",
           role: data.role || "",
           tabSwitches: data.tab_switches || 0,
+          copyAttempts: data.copy_attempts || 0,
           faceLostCount: data.face_lost_count || 0,
           faceLostSeconds: data.face_lost_seconds || 0,
           multipleFacesCount: data.multiple_faces_count || 0,
@@ -408,7 +410,8 @@ export default function Results({
   // Proctoring flags card
   // -------------------------------
   const flags: [string, number, string][] = [
-    ["Focus & copy flags", result.tabSwitches ?? 0, `${result.tabSwitches ?? 0}×`],
+    ["Tab switches", result.tabSwitches ?? 0, `${result.tabSwitches ?? 0}×`],
+    ["Copy attempts blocked", result.copyAttempts ?? 0, `${result.copyAttempts ?? 0}×`],
     ["Left camera view", result.faceLostCount ?? 0, `${result.faceLostCount ?? 0}×${(result.faceLostSeconds ?? 0) > 0 ? ` (${result.faceLostSeconds}s)` : ""}`],
     ["Multiple faces seen", result.multipleFacesCount ?? 0, `${result.multipleFacesCount ?? 0}×`],
     ["Sudden movement", result.movementEvents ?? 0, `${result.movementEvents ?? 0}×`],
@@ -612,7 +615,8 @@ export default function Results({
 
               {(() => {
                 const flags = [
-                  { label: "Focus & copy flags", value: `${result.tabSwitches ?? 0}`, count: result.tabSwitches ?? 0 },
+                  { label: "Tab switches", value: `${result.tabSwitches ?? 0}×`, count: result.tabSwitches ?? 0 },
+                  { label: "Copy attempts blocked", value: `${result.copyAttempts ?? 0}×`, count: result.copyAttempts ?? 0 },
                   {
                     label: "Left camera view",
                     value: `${result.faceLostCount ?? 0}×${(result.faceLostSeconds ?? 0) > 0 ? ` (${result.faceLostSeconds}s total)` : ""}`,

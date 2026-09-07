@@ -30,6 +30,12 @@ interface SessionResult {
   started_at: string;
   updated_at: string;
   has_photo: boolean;
+  tab_switches: number;
+  copy_attempts: number;
+  face_lost_count: number;
+  face_lost_seconds: number;
+  multiple_faces_count: number;
+  movement_events: number;
 }
 
 interface Invite {
@@ -544,6 +550,37 @@ export default function Admin() {
                             {r.questions_answered ? ` · ${r.questions_answered} answers` : ""}
                             {r.updated_at ? ` · ${r.updated_at}` : ""}
                           </p>
+                          {/* Proctoring signals sit next to the score because
+                              that is the moment a reviewer decides whether the
+                              score can be trusted. Only raised flags are shown,
+                              so a clean interview stays visually quiet. */}
+                          {(() => {
+                            const flags = [
+                              ["Tab switches", r.tab_switches],
+                              ["Copy attempts", r.copy_attempts],
+                              ["Left view", r.face_lost_count],
+                              ["Multiple faces", r.multiple_faces_count],
+                              ["Movement", r.movement_events],
+                            ].filter(([, n]) => (n as number) > 0) as [string, number][];
+                            if (flags.length === 0) {
+                              return (
+                                <p className="mt-1.5 text-[11px] text-acc-emerald">No proctoring flags</p>
+                              );
+                            }
+                            return (
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {flags.map(([label, n]) => (
+                                  <span
+                                    key={label}
+                                    className="text-[10px] font-medium rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-amber-300 tabular-nums"
+                                  >
+                                    {label}: {n}
+                                    {label === "Left view" && r.face_lost_seconds > 0 ? ` (${r.face_lost_seconds}s)` : ""}
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
                         <div className="flex-shrink-0">
                           <button

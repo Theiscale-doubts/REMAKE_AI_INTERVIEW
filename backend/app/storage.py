@@ -54,7 +54,14 @@ def _qa_headers(pairs: int = MAX_QA_PAIRS) -> list:
     return [h for i in range(1, pairs + 1) for h in (f"Q{i}", f"A{i}")]
 
 
-CSV_HEADERS = BASE_HEADERS + _qa_headers()
+# CopyAttempts is appended AFTER the Q/A pairs rather than beside the other
+# proctoring counters in BASE_HEADERS. Slotting it into the middle would shift
+# every Q/A column one to the right, and _ensure_sheet_headers rewrites row 1
+# in place — so every pre-existing sheet row would keep its old cell positions
+# while the new header claimed they meant something else. Appending at the end
+# leaves all existing data correctly aligned and simply gives older interviews
+# an empty CopyAttempts cell, which is accurate: they ran before it was counted.
+CSV_HEADERS = BASE_HEADERS + _qa_headers() + ["CopyAttempts"]
 
 # The CSV is now read-modify-write (a row is updated in place as each answer
 # arrives) rather than append-only, so concurrent /api/save calls from two
@@ -181,7 +188,7 @@ def _blank_row(session_id: str) -> dict:
     row["Session_id"] = session_id or ""
     row["QuestionsAnswered"] = "0"
     row["StartedAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    for key in ("TabSwitches", "FaceLostCount", "FaceLostSeconds",
+    for key in ("TabSwitches", "CopyAttempts", "FaceLostCount", "FaceLostSeconds",
                 "MultipleFacesCount", "MovementEvents"):
         row[key] = "0"
     return row
@@ -234,6 +241,7 @@ def _apply_answer(row: dict, question: str, answer: str, **meta) -> dict:
     # Proctoring counters are cumulative on the frontend, so keep the highest
     # value ever reported rather than whatever the last call happened to send.
     for key, value in (("TabSwitches", meta.get("tab_switches")),
+                       ("CopyAttempts", meta.get("copy_attempts")),
                        ("FaceLostCount", meta.get("face_lost_count")),
                        ("FaceLostSeconds", meta.get("face_lost_seconds")),
                        ("MultipleFacesCount", meta.get("multiple_faces_count")),
@@ -567,12 +575,14 @@ def save_qa_tool(
     multiple_faces_count: int | None = None,
     movement_events: int | None = None,
     photo: str | None = None,
+    copy_attempts: int | None = None,
 ) -> str:
     """Record one Q/A exchange onto this session's single row."""
     row = _upsert_csv(
         session_id or "", question, answer,
         name=name, email=email, role=role,
-        tab_switches=tab_switches, face_lost_count=face_lost_count,
+        tab_switches=tab_switches, copy_attempts=copy_attempts,
+        face_lost_count=face_lost_count,
         face_lost_seconds=face_lost_seconds,
         multiple_faces_count=multiple_faces_count,
         movement_events=movement_events, photo=photo,
@@ -610,8 +620,8 @@ def _row_to_qa_list(row: dict) -> list:
     answered = min(answered, MAX_QA_PAIRS)
 
     shared = {k: row.get(k, "") for k in (
-        "Session_id", "Name", "Email", "Role", "TabSwitches", "FaceLostCount",
-        "FaceLostSeconds", "MultipleFacesCount", "MovementEvents",
+        "Session_id", "Name", "Email", "Role", "TabSwitches", "CopyAttempts",
+        "FaceLostCount", "FaceLostSeconds", "MultipleFacesCount", "MovementEvents",
     )}
 
     entries = []
@@ -744,6 +754,18 @@ def session_summary(row: dict) -> dict:
         "started_at": (row.get("StartedAt") or "").strip(),
         "updated_at": (row.get("UpdatedAt") or "").strip(),
         "has_photo": bool((row.get("Photo") or "").strip()),
+        # Proctoring counters. These were collected during the interview and
+        # written to the sheet, but the summary dropped them — so the admin
+        # results list, the one place a reviewer actually screens candidates,
+        # showed a score with no integrity signal beside it. They are small
+        # integers; including them costs nothing and is the whole point of
+        # having recorded them.
+        "tab_switches": _to_int(row.get("TabSwitches")),
+        "copy_attempts": _to_int(row.get("CopyAttempts")),
+        "face_lost_count": _to_int(row.get("FaceLostCount")),
+        "face_lost_seconds": _to_int(row.get("FaceLostSeconds")),
+        "multiple_faces_count": _to_int(row.get("MultipleFacesCount")),
+        "movement_events": _to_int(row.get("MovementEvents")),
     }
 
 

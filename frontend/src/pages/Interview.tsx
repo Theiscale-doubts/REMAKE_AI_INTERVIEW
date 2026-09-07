@@ -443,6 +443,10 @@ function InterviewPage({
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [tabSwitches, setTabSwitches] = useState(0);
+  // Kept separate from tabSwitches: leaving the interview and trying to copy
+  // the question are different behaviours, and a reviewer needs to tell them
+  // apart rather than read one merged number.
+  const [copyAttempts, setCopyAttempts] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => !!document.fullscreenElement);
   const [faceStatus, setFaceStatus] = useState<"loading" | "detected" | "none" | "unavailable">("loading");
   const faceDetectorRef = useRef<{ close: () => void } | null>(null);
@@ -629,7 +633,7 @@ function InterviewPage({
 
     const flagCopyAttempt = (e: Event) => {
       e.preventDefault();
-      setTabSwitches((c) => c + 1);
+      setCopyAttempts((c) => c + 1);
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1074,6 +1078,7 @@ function InterviewPage({
             email: email,
             role: role,
             tab_switches: tabSwitches,
+            copy_attempts: copyAttempts,
             face_lost_count: proctorStats.faceLostCount,
             face_lost_seconds: Math.round(proctorStats.faceLostSeconds),
             multiple_faces_count: proctorStats.multipleFacesCount,
@@ -1223,12 +1228,13 @@ function InterviewPage({
             </p>
           </div>
         )}
-        <div className={`px-2 sm:px-3.5 py-1 sm:py-1.5 border-t border-hairline ${tabSwitches > 0 ? "bg-amber-500/10" : "bg-surface-2/50"}`}>
-          <p className={`text-[9.5px] sm:text-[11px] leading-tight ${tabSwitches > 0 ? "text-amber-400" : "text-txt-low"}`}>
-            {/* Counts leaving the interview (tab, app, or a macOS Space swipe)
-                as well as blocked copy attempts — "tab switches" alone would
-                understate what the number now covers. */}
-            Focus &amp; copy flags: {tabSwitches}
+        {/* Tab switches and copy attempts are shown as separate figures: one is
+            leaving the interview (tab, app, or a macOS Space swipe), the other
+            is trying to lift the question text. Merging them hid which had
+            actually happened. */}
+        <div className={`px-2 sm:px-3.5 py-1 sm:py-1.5 border-t border-hairline ${tabSwitches > 0 || copyAttempts > 0 ? "bg-amber-500/10" : "bg-surface-2/50"}`}>
+          <p className={`text-[9.5px] sm:text-[11px] leading-tight ${tabSwitches > 0 || copyAttempts > 0 ? "text-amber-400" : "text-txt-low"}`}>
+            Tab switches: {tabSwitches} · Copy attempts: {copyAttempts}
           </p>
         </div>
         {(proctorStats.faceLostCount > 0 || proctorStats.multipleFacesCount > 0 || proctorStats.movementEvents > 0) && (
