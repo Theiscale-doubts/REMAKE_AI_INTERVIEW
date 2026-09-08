@@ -35,6 +35,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from .storage import extract_values
 from .agent import (
+    MIN_QUESTIONS,
     run_agent_turn,
     end_session,
     session_count,
@@ -1062,6 +1063,15 @@ EVALUATION GUIDELINES:
     # Extract score and feedback
     score = extract_score(response_text)
     feedback = extract_feedback(response_text)
+
+    # An interview that ended early is graded on what little it contains, and
+    # the evaluator only ever sees the answers that exist — so a candidate who
+    # quit after three questions could be scored on their three best moments
+    # and out-rank someone who sat the whole thing. The completion penalty is
+    # applied here, server-side and deterministically, for the same reason the
+    # category percentages are: it must not be something the model can be
+    # talked out of, or the browser can forge.
+    score, feedback = _apply_completion_penalty(score, feedback, len(log_rows))
     # Fill the score into this session's existing row. The previous call here
     # appended a free-floating ["Evaluation", "Score: x", "Feedback: y"] row,
     # whose cells landed under the Question/Answer/Session_id headers and so
@@ -1082,6 +1092,41 @@ EVALUATION GUIDELINES:
     end_session(session_id)
 
     return _build_result(log_rows, first_entry, score, feedback)
+
+
+# Deduction per question left unanswered below the MIN_QUESTIONS floor.
+# 0.8 makes a single missed question a real but survivable dent (7.0 -> 6.2),
+# while abandoning after two questions is decisive (7.0 -> 1.4) — which matches
+# how a human reviewer would read the two cases.
+INCOMPLETE_PENALTY_PER_QUESTION = float(os.getenv("INCOMPLETE_PENALTY_PER_QUESTION", "0.8"))
+
+
+def _apply_completion_penalty(score: float, feedback: str, answered: int) -> tuple[float, str]:
+    """Deduct marks for an interview that did not reach the minimum length.
+
+    Returns the adjusted score and feedback annotated with the reason, so a
+    reviewer can always see why a number differs from the written assessment
+    rather than being left to wonder.
+    """
+    missing = MIN_QUESTIONS - answered
+    if missing <= 0:
+        return score, feedback
+
+    penalty = round(missing * INCOMPLETE_PENALTY_PER_QUESTION, 1)
+    adjusted = max(0.0, round(score - penalty, 1))
+
+    note = (
+        f"\n\n## Incomplete Interview\n"
+        f"This interview ended after {answered} of the {MIN_QUESTIONS} required "
+        f"questions. A completion penalty of {penalty:.1f} was applied, reducing the "
+        f"score from {score:.1f} to {adjusted:.1f}. The assessment above reflects only "
+        f"the {answered} answer{'s' if answered != 1 else ''} actually given."
+    )
+    log.info(
+        "Completion penalty: answered=%d/%d penalty=%.1f score %.1f -> %.1f",
+        answered, MIN_QUESTIONS, penalty, score, adjusted,
+    )
+    return adjusted, feedback.rstrip() + note
 
 
 def _build_result(log_rows: list, first_entry: dict, score: float, feedback: str) -> InterviewResult:
