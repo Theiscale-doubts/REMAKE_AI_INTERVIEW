@@ -21,6 +21,7 @@ import {
   Clock,
   ListChecks,
   AlertTriangle,
+  Eye,
 } from "lucide-react";
 import PoweredByIScale from "@/components/PoweredByIScale";
 import SiteFooter from "@/components/SiteFooter";
@@ -208,8 +209,11 @@ function SetupPage({
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-7 py-6 sm:py-8">
-        <div className="max-w-[620px] mb-8 animate-fade-up">
+      {/* Top padding is deliberately smaller than the bottom: the header rule
+          already provides visual separation, so a symmetric py- left a dead
+          gap under it before the step badge. */}
+      <main className="max-w-6xl mx-auto px-4 sm:px-7 pt-4 sm:pt-5 pb-6 sm:pb-8">
+        <div className="max-w-[620px] mb-7 animate-fade-up">
           <div className="vh-badge mb-4">
             <span className="h-1.5 w-1.5 rounded-full bg-acc-cyan animate-pulse" />
             Step 1 of 2 · Interview setup
@@ -404,64 +408,32 @@ function SetupPage({
                 genuinely does — keep this list in step with the code if the
                 data collected ever changes. */}
             <section id="consent-card" className="vh-card p-7">
-              <div className="flex items-center gap-2.5 mb-1.5">
-                <Shield className="h-[16px] w-[16px] text-[#C81D25] flex-shrink-0" />
-                <h2 className="text-[14.5px] tracking-[-0.01em] font-semibold">
+              <div className="flex items-center gap-2 mb-3">
+                <Shield className="h-[15px] w-[15px] text-[#C81D25] flex-shrink-0" />
+                <h2 className="text-[14px] tracking-[-0.01em] font-semibold">
                   Consent &amp; data notice
                 </h2>
               </div>
-              <p className="text-[12.5px] leading-relaxed text-txt-mid mb-5">
-                This interview is recorded and proctored. Please read what is collected
-                before you begin — you cannot start until you accept.
-              </p>
 
-              <ul className="space-y-3.5">
+              {/* Bare icons on a fixed 14px column, nudged to sit on the first
+                  text line — this matches the "What to expect" card above and
+                  keeps every title and body flush on the same left edge. */}
+              <ul className="space-y-2">
                 {[
-                  {
-                    icon: Camera,
-                    title: "Webcam photo",
-                    body:
-                      "Your camera stays on for the whole interview, and a still photo of you may be captured from it at any point during the session and stored with your report to verify who took the interview.",
-                  },
-                  {
-                    icon: Mic,
-                    title: "Voice answers and transcripts",
-                    body:
-                      "Your spoken answers are sent to a third-party speech-to-text service to be transcribed. The resulting text is stored and used to score your interview; the audio itself is used only to produce that transcript and is not kept afterwards.",
-                  },
-                  {
-                    icon: AlertTriangle,
-                    title: "Proctoring signals",
-                    body:
-                      "Tab switches, blocked copy attempts, whether your face stays in frame (and for how long it does not), additional faces appearing, and sudden movement are all detected and recorded in your report.",
-                  },
-                  {
-                    icon: User,
-                    title: "Your details",
-                    body:
-                      "The name, email and role you entered — plus any photo you uploaded — are stored alongside your score, written feedback and full question-and-answer transcript.",
-                  },
-                  {
-                    icon: ListChecks,
-                    title: "How it is used",
-                    body:
-                      "Your questions and answers are processed by third-party AI providers to generate your score and written feedback. Your report may be viewed by the hiring team. It is not sold and is not used for advertising.",
-                  },
-                  {
-                    icon: Briefcase,
-                    title: "Where it is stored",
-                    body:
-                      "Your interview record — details, transcript, photo, score and proctoring flags — is stored on our servers and in a private Google Sheet used by the hiring team. Contact us at the address you applied through to request a copy or deletion.",
-                  },
+                  { icon: Camera, title: "Photo", body: "Your camera stays on and a photo may be taken at any time and saved with your report." },
+                  // Wording is deliberate: the audio is not kept, only the text
+                  // it produces, so this says recorded-and-saved-as-a-transcript
+                  // rather than claiming the recording itself is stored.
+                  { icon: Mic, title: "Audio", body: "Your spoken answers are recorded and saved as a transcript." },
+                  { icon: Eye, title: "Proctoring", body: "Tab switches, copy attempts, face and movement are recorded." },
                 ].map(({ icon: Icon, title, body }) => (
-                  <li key={title} className="flex items-start gap-3">
-                    <span className="h-7 w-7 rounded-lg bg-surface-2 border border-hairline grid place-items-center flex-shrink-0 mt-0.5">
-                      <Icon className="h-[14px] w-[14px] text-[#E05860]" />
+                  <li key={title} className="flex items-start gap-2.5">
+                    <span className="w-4 flex justify-center flex-shrink-0 mt-[2px]">
+                      <Icon className="h-[14px] w-[14px] text-txt-low" />
                     </span>
-                    <div className="min-w-0">
-                      <p className="text-[12.5px] font-semibold text-txt-hi leading-snug">{title}</p>
-                      <p className="text-[12px] leading-relaxed text-txt-mid mt-0.5">{body}</p>
-                    </div>
+                    <p className="text-[12px] leading-[1.5] text-txt-mid min-w-0">
+                      <span className="font-medium text-txt-hi">{title}.</span> {body}
+                    </p>
                   </li>
                 ))}
               </ul>
@@ -470,7 +442,7 @@ function SetupPage({
                   and htmlFor/id keep it reachable by keyboard and screen reader. */}
               <label
                 htmlFor="consent-accept"
-                className={`mt-6 flex items-start gap-3 px-4 py-3.5 rounded-xl border cursor-pointer transition-colors duration-200 ${
+                className={`mt-5 -mx-3.5 flex items-start gap-2.5 px-3.5 py-3 rounded-xl border cursor-pointer transition-colors duration-200 ${
                   consentAccepted
                     ? "border-acc-emerald/45 bg-acc-emerald/[0.07]"
                     : "border-hairline-strong bg-surface-1 hover:border-[rgba(200,29,37,.45)]"
@@ -487,9 +459,8 @@ function SetupPage({
                   }}
                   className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[#C81D25] cursor-pointer"
                 />
-                <span className="text-[12.5px] leading-relaxed text-txt-hi">
-                  I have read and accept the above. I consent to my camera, microphone,
-                  transcript and proctoring data being recorded and stored as described.
+                <span className="text-[12px] leading-snug text-txt-hi">
+                  I have read and accept the above, and consent to being recorded and proctored.
                 </span>
               </label>
             </section>
