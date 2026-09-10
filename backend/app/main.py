@@ -466,6 +466,9 @@ class SaveRequest(BaseModel):
     # them so a forged payload cannot store absurd values in the report.
     tab_switches: int | None = Field(default=None, ge=0, le=100_000)
     copy_attempts: int | None = Field(default=None, ge=0, le=100_000)
+    # When the candidate ticked the consent box, ISO-8601 from the browser.
+    # Length-capped because it is client-supplied text, not a number.
+    consent_accepted_at: str | None = Field(default=None, max_length=40)
     face_lost_count: int | None = Field(default=None, ge=0, le=100_000)
     face_lost_seconds: int | None = Field(default=None, ge=0, le=100_000)
     multiple_faces_count: int | None = Field(default=None, ge=0, le=100_000)
@@ -793,6 +796,7 @@ def save_endpoint(request: SaveRequest, http_request: Request):
                 "Role": request.role or "",
                 "TabSwitches": request.tab_switches or 0,
                 "CopyAttempts": request.copy_attempts or 0,
+                "ConsentAcceptedAt": request.consent_accepted_at or "",
                 "FaceLostCount": request.face_lost_count or 0,
                 "FaceLostSeconds": request.face_lost_seconds or 0,
                 "MultipleFacesCount": request.multiple_faces_count or 0,
@@ -817,6 +821,7 @@ def save_endpoint(request: SaveRequest, http_request: Request):
             request.multiple_faces_count, request.movement_events,
             request.photo if _valid_photo(request.photo) else None,
             copy_attempts=request.copy_attempts,
+            consent_accepted_at=request.consent_accepted_at,
         )
     except Exception as exc:
         log.warning("Durable save failed for session %s: %s", request.session_id, exc)

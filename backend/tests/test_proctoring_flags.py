@@ -81,11 +81,13 @@ def test_clean_interview_reports_zeros_not_missing_keys():
         assert summary[key] == 0, key
 
 
-def test_copy_attempts_column_is_appended_last():
+def test_copy_attempts_column_sits_after_the_qa_pairs():
     """Placement is load-bearing: _ensure_sheet_headers rewrites row 1 in place,
     so inserting a column mid-schema would silently re-label every existing
-    sheet row's cells. Appending leaves prior data aligned."""
-    assert storage.CSV_HEADERS[-1] == "CopyAttempts"
+    sheet row's cells. New columns therefore go after the Q/A block — this
+    asserts that invariant rather than pinning CopyAttempts to the very end,
+    which stops being true the moment another column is added after it."""
+    assert storage.CSV_HEADERS.index("CopyAttempts") > storage.CSV_HEADERS.index("A20")
     # Q/A pairs start immediately after BASE_HEADERS and must not have shifted.
     assert storage.CSV_HEADERS.index("Q1") == len(storage.BASE_HEADERS)
 

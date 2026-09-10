@@ -36,6 +36,7 @@ interface SessionResult {
   face_lost_seconds: number;
   multiple_faces_count: number;
   movement_events: number;
+  consent_accepted_at: string;
 }
 
 interface Invite {
@@ -562,13 +563,22 @@ export default function Admin() {
                               ["Multiple faces", r.multiple_faces_count],
                               ["Movement", r.movement_events],
                             ].filter(([, n]) => (n as number) > 0) as [string, number][];
+                            const consent = r.consent_accepted_at ? (
+                              <span className="text-[10px] font-medium rounded-full border border-acc-emerald/35 bg-acc-emerald/10 px-2 py-0.5 text-acc-emerald">
+                                Consent {r.consent_accepted_at.slice(0, 10)}
+                              </span>
+                            ) : null;
                             if (flags.length === 0) {
                               return (
-                                <p className="mt-1.5 text-[11px] text-acc-emerald">No proctoring flags</p>
+                                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                  <span className="text-[11px] text-acc-emerald">No proctoring flags</span>
+                                  {consent}
+                                </div>
                               );
                             }
                             return (
                               <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {consent}
                                 {flags.map(([label, n]) => (
                                   <span
                                     key={label}

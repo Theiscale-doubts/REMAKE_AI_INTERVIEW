@@ -61,7 +61,13 @@ def _qa_headers(pairs: int = MAX_QA_PAIRS) -> list:
 # while the new header claimed they meant something else. Appending at the end
 # leaves all existing data correctly aligned and simply gives older interviews
 # an empty CopyAttempts cell, which is accurate: they ran before it was counted.
-CSV_HEADERS = BASE_HEADERS + _qa_headers() + ["CopyAttempts"]
+# ConsentAcceptedAt follows CopyAttempts at the tail for the same reason: new
+# columns go on the end so no existing sheet row's cells get re-labelled.
+# It records WHEN the candidate ticked the consent box, which is the evidence
+# that matters — a bare "true" proves nothing about which version they saw or
+# when. Empty means the interview predates consent capture, not that consent
+# was refused: the UI cannot start an interview without it.
+CSV_HEADERS = BASE_HEADERS + _qa_headers() + ["CopyAttempts", "ConsentAcceptedAt"]
 
 # The CSV is now read-modify-write (a row is updated in place as each answer
 # arrives) rather than append-only, so concurrent /api/save calls from two
@@ -256,6 +262,12 @@ def _apply_answer(row: dict, question: str, answer: str, **meta) -> dict:
     # The snapshot is captured once; never overwrite one already stored.
     if meta.get("photo") and not row.get("Photo"):
         row["Photo"] = meta["photo"]
+
+    # Consent is a point-in-time fact: record the first timestamp reported and
+    # never let a later save move it, so the stored value stays the moment the
+    # candidate actually agreed.
+    if meta.get("consent_accepted_at") and not row.get("ConsentAcceptedAt"):
+        row["ConsentAcceptedAt"] = _sheet_safe(str(meta["consent_accepted_at"]))
 
     row["UpdatedAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return row
@@ -576,6 +588,7 @@ def save_qa_tool(
     movement_events: int | None = None,
     photo: str | None = None,
     copy_attempts: int | None = None,
+    consent_accepted_at: str | None = None,
 ) -> str:
     """Record one Q/A exchange onto this session's single row."""
     row = _upsert_csv(
@@ -586,6 +599,7 @@ def save_qa_tool(
         face_lost_seconds=face_lost_seconds,
         multiple_faces_count=multiple_faces_count,
         movement_events=movement_events, photo=photo,
+        consent_accepted_at=consent_accepted_at,
     )
     return _sync_sheet(row)
 
@@ -766,6 +780,8 @@ def session_summary(row: dict) -> dict:
         "face_lost_seconds": _to_int(row.get("FaceLostSeconds")),
         "multiple_faces_count": _to_int(row.get("MultipleFacesCount")),
         "movement_events": _to_int(row.get("MovementEvents")),
+        # Evidence that this candidate agreed to recording, and when.
+        "consent_accepted_at": (row.get("ConsentAcceptedAt") or "").strip(),
     }
 
 

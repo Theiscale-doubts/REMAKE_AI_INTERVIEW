@@ -48,6 +48,10 @@ export default function VoxHireApp() {
   const [inviteCode, setInviteCode] = useState("");
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  // Recorded the moment the candidate ticks the consent box, and held here
+  // rather than in SetupPage because that component unmounts once the
+  // interview starts — and the timestamp has to outlive it to be saved.
+  const [consentAcceptedAt, setConsentAcceptedAt] = useState<string | null>(null);
 
   const startNewSession = async () => {
     setStarting(true);
@@ -89,6 +93,7 @@ export default function VoxHireApp() {
         photo={userDetails.photo}
         role={userDetails.role}
         sessionId={sessionId}
+        consentAcceptedAt={consentAcceptedAt}
         onBack={() => {
           setShowInterview(false);
           setSessionId("");
@@ -109,6 +114,7 @@ export default function VoxHireApp() {
       startError={startError}
       inviteCode={inviteCode}
       setInviteCode={setInviteCode}
+      onConsentChange={setConsentAcceptedAt}
     />
   );
 }
@@ -122,6 +128,7 @@ function SetupPage({
   startError,
   inviteCode,
   setInviteCode,
+  onConsentChange,
 }: {
   userDetails: { name: string; email: string; photo: string | null; role: string };
   setUserDetails: (details: any) => void;
@@ -130,8 +137,14 @@ function SetupPage({
   startError: string | null;
   inviteCode: string;
   setInviteCode: (code: string) => void;
+  onConsentChange: (acceptedAt: string | null) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Explicit, opt-in consent. Starts false on every visit and is never
+  // persisted — a candidate must actively accept each time rather than
+  // inheriting an earlier session's agreement, which is what makes this a
+  // real record of consent rather than a checkbox they never saw.
+  const [consentAccepted, setConsentAccepted] = useState(false);
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -162,6 +175,17 @@ function SetupPage({
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userDetails.email)) {
       showCustomAlert("Please enter a valid email address");
+      return;
+    }
+    // Consent is checked last so the candidate has already filled everything
+    // else in — and checked in the handler as well as via the disabled button,
+    // because a disabled attribute alone is trivially removed in devtools and
+    // this is the one gate that must not be bypassable.
+    if (!consentAccepted) {
+      showCustomAlert(
+        "Please read and accept the consent notice before starting the interview."
+      );
+      document.getElementById("consent-card")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
     // Request fullscreen here, inside the click handler — browsers only allow
@@ -294,8 +318,9 @@ function SetupPage({
             <div className="px-5 sm:px-7 py-6 border-t border-hairline bg-[rgba(5,5,5,.45)]">
               <button
                 onClick={handleStartInterview}
-                disabled={starting}
-                className="vh-btn-primary w-full px-8 py-3.5 text-[15px]"
+                disabled={starting || !consentAccepted}
+                aria-describedby={!consentAccepted ? "consent-required-hint" : undefined}
+                className="vh-btn-primary w-full px-8 py-3.5 text-[15px] disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 {starting ? (
                   <>
@@ -310,6 +335,13 @@ function SetupPage({
                   </>
                 )}
               </button>
+              {/* Says why the button is inert. A disabled control with no
+                  explanation reads as a broken page. */}
+              {!consentAccepted && !starting && (
+                <p id="consent-required-hint" className="mt-3.5 text-center text-[12.5px] text-txt-low leading-relaxed">
+                  Please accept the consent notice above to continue.
+                </p>
+              )}
               {starting && (
                 <p className="mt-3.5 text-center text-sm text-txt-mid vh-shimmer-text">
                   Preparing your secure interview session — this can take up to a minute…
@@ -351,35 +383,116 @@ function SetupPage({
                   <CheckCircle2 className="h-[15px] w-[15px] text-acc-emerald flex-shrink-0" />
                   Works best in Chrome or Edge on desktop
                 </div>
+                {/* Kept from the old preparation-tips card: the two pointers
+                    that are practical advice rather than data disclosure. The
+                    rest of that card is now covered by the consent notice. */}
+                <div className="flex items-center gap-2.5 text-[13px] text-txt-mid">
+                  <Mic className="h-[15px] w-[15px] text-acc-emerald flex-shrink-0" />
+                  Answer out loud in full sentences — explain the why, not just the what
+                </div>
+                <div className="flex items-center gap-2.5 text-[13px] text-txt-mid">
+                  <Volume2 className="h-[15px] w-[15px] text-acc-emerald flex-shrink-0" />
+                  Replay any question with the speaker button
+                </div>
               </div>
             </section>
 
-            <section className="vh-card p-7">
-              <h2 className="text-[14.5px] tracking-[-0.01em] font-semibold mb-4">Preparation tips</h2>
-              <ul className="space-y-3">
+            {/* Consent notice. Replaces the old "Preparation tips" card: the
+                candidate must be told exactly what is recorded, and must
+                actively agree, before any camera, microphone or proctoring
+                data is collected. Each item below describes something the app
+                genuinely does — keep this list in step with the code if the
+                data collected ever changes. */}
+            <section id="consent-card" className="vh-card p-7">
+              <div className="flex items-center gap-2.5 mb-1.5">
+                <Shield className="h-[16px] w-[16px] text-[#C81D25] flex-shrink-0" />
+                <h2 className="text-[14.5px] tracking-[-0.01em] font-semibold">
+                  Consent &amp; data notice
+                </h2>
+              </div>
+              <p className="text-[12.5px] leading-relaxed text-txt-mid mb-5">
+                This interview is recorded and proctored. Please read what is collected
+                before you begin — you cannot start until you accept.
+              </p>
+
+              <ul className="space-y-3.5">
                 {[
-                  "Find a quiet, well-lit spot — the session is proctored by camera.",
-                  "Answer out loud in full sentences; explain the why, not just the what.",
-                  "Stay on this tab. Tab switches are recorded in your report.",
-                  "You can replay any question with the speaker button.",
-                ].map((tip, i) => (
-                  <li key={i} className="flex items-start gap-3 text-[13px] leading-relaxed text-txt-mid">
-                    <span className="h-5 w-5 rounded-md bg-surface-2 border border-hairline grid place-items-center text-[10px] font-semibold text-[#C81D25] flex-shrink-0 mt-0.5 tabular-nums">
-                      {i + 1}
+                  {
+                    icon: Camera,
+                    title: "Webcam photo",
+                    body:
+                      "Your camera stays on for the whole interview, and a still photo of you may be captured from it at any point during the session and stored with your report to verify who took the interview.",
+                  },
+                  {
+                    icon: Mic,
+                    title: "Voice answers and transcripts",
+                    body:
+                      "Your spoken answers are sent to a third-party speech-to-text service to be transcribed. The resulting text is stored and used to score your interview; the audio itself is used only to produce that transcript and is not kept afterwards.",
+                  },
+                  {
+                    icon: AlertTriangle,
+                    title: "Proctoring signals",
+                    body:
+                      "Tab switches, blocked copy attempts, whether your face stays in frame (and for how long it does not), additional faces appearing, and sudden movement are all detected and recorded in your report.",
+                  },
+                  {
+                    icon: User,
+                    title: "Your details",
+                    body:
+                      "The name, email and role you entered — plus any photo you uploaded — are stored alongside your score, written feedback and full question-and-answer transcript.",
+                  },
+                  {
+                    icon: ListChecks,
+                    title: "How it is used",
+                    body:
+                      "Your questions and answers are processed by third-party AI providers to generate your score and written feedback. Your report may be viewed by the hiring team. It is not sold and is not used for advertising.",
+                  },
+                  {
+                    icon: Briefcase,
+                    title: "Where it is stored",
+                    body:
+                      "Your interview record — details, transcript, photo, score and proctoring flags — is stored on our servers and in a private Google Sheet used by the hiring team. Contact us at the address you applied through to request a copy or deletion.",
+                  },
+                ].map(({ icon: Icon, title, body }) => (
+                  <li key={title} className="flex items-start gap-3">
+                    <span className="h-7 w-7 rounded-lg bg-surface-2 border border-hairline grid place-items-center flex-shrink-0 mt-0.5">
+                      <Icon className="h-[14px] w-[14px] text-[#E05860]" />
                     </span>
-                    {tip}
+                    <div className="min-w-0">
+                      <p className="text-[12.5px] font-semibold text-txt-hi leading-snug">{title}</p>
+                      <p className="text-[12px] leading-relaxed text-txt-mid mt-0.5">{body}</p>
+                    </div>
                   </li>
                 ))}
               </ul>
-            </section>
 
-            <div className="flex items-start gap-3 px-5 py-4 rounded-2xl border border-hairline bg-surface-1/60">
-              <Shield className="h-[15px] w-[15px] text-txt-low mt-0.5 flex-shrink-0" />
-              <p className="text-[11.5px] leading-relaxed text-txt-low">
-                Your responses are transcribed and saved securely for evaluation.
-                Audio is processed for transcription only and never stored.
-              </p>
-            </div>
+              {/* The label wraps the checkbox so the whole row is a hit target,
+                  and htmlFor/id keep it reachable by keyboard and screen reader. */}
+              <label
+                htmlFor="consent-accept"
+                className={`mt-6 flex items-start gap-3 px-4 py-3.5 rounded-xl border cursor-pointer transition-colors duration-200 ${
+                  consentAccepted
+                    ? "border-acc-emerald/45 bg-acc-emerald/[0.07]"
+                    : "border-hairline-strong bg-surface-1 hover:border-[rgba(200,29,37,.45)]"
+                }`}
+              >
+                <input
+                  id="consent-accept"
+                  type="checkbox"
+                  checked={consentAccepted}
+                  onChange={(e) => {
+                    const accepted = e.target.checked;
+                    setConsentAccepted(accepted);
+                    onConsentChange(accepted ? new Date().toISOString() : null);
+                  }}
+                  className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[#C81D25] cursor-pointer"
+                />
+                <span className="text-[12.5px] leading-relaxed text-txt-hi">
+                  I have read and accept the above. I consent to my camera, microphone,
+                  transcript and proctoring data being recorded and stored as described.
+                </span>
+              </label>
+            </section>
           </div>
         </div>
       </main>
@@ -395,6 +508,7 @@ function InterviewPage({
   photo,
   role,
   sessionId,
+  consentAcceptedAt,
   onBack,
   onFinishInterview
 }: {
@@ -403,6 +517,7 @@ function InterviewPage({
   photo: string | null;
   role: string;
   sessionId: string;
+  consentAcceptedAt: string | null;
   onBack: () => void;
   onFinishInterview: (sessionId: string) => void;
 }) {
@@ -1079,6 +1194,7 @@ function InterviewPage({
             role: role,
             tab_switches: tabSwitches,
             copy_attempts: copyAttempts,
+            consent_accepted_at: consentAcceptedAt,
             face_lost_count: proctorStats.faceLostCount,
             face_lost_seconds: Math.round(proctorStats.faceLostSeconds),
             multiple_faces_count: proctorStats.multipleFacesCount,
